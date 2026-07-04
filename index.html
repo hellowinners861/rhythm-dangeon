@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>リズムダンジョン</title>
+  <!-- favicon.icoの404を防ぐインラインアイコン(絵文字) -->
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎵</text></svg>">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- ゲーム描画は単一Canvas(論理解像度1600×900) -->
+  <canvas id="game"></canvas>
+
+  <!-- 上部のシーン切り替えUI(DOMボタン) -->
+  <div id="topbar">
+    <button id="btn-calib" class="ui-btn">較正モードへ</button>
+    <!-- 較正パネル(較正シーンでのみ表示) -->
+    <div id="calib-panel" class="hidden">
+      <div id="calib-info">メトロノームに合わせて8回タップ</div>
+      <div class="calib-row">
+        <label for="calib-slider">手動調整</label>
+        <input type="range" id="calib-slider" min="-200" max="200" value="0" step="1">
+        <span id="calib-value">0ms</span>
+      </div>
+      <div class="calib-btns">
+        <button id="btn-save" class="ui-btn">保存する</button>
+        <button id="btn-retry" class="ui-btn">やり直す</button>
+        <button id="btn-back" class="ui-btn">テストへ戻る</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 下部タッチ操作ボタン -->
+  <div id="controls">
+    <div class="pad pad-left">
+      <button class="act-btn" data-action="left" aria-label="左">◀</button>
+      <button class="act-btn" data-action="right" aria-label="右">▶</button>
+    </div>
+    <div class="pad pad-right">
+      <button class="act-btn" data-action="jump" aria-label="ジャンプ">🦘</button>
+      <button class="act-btn" data-action="attack" aria-label="攻撃">⚔</button>
+    </div>
+  </div>
+
+  <!-- 縦持ち警告 -->
+  <div id="rotate-guard">📱 横画面にしてください</div>
+
+  <!-- 読み込み順(DESIGN.md §14): config → sfx → save → conductor → input
+       → levelgen → player → enemies → boss → items → notesui → home → songs → game -->
+  <script src="js/config.js"></script>
+  <script src="js/sfx.js"></script>
+  <script src="js/save.js"></script>
+  <script src="js/conductor.js"></script>
+  <script src="js/input.js"></script>
+  <script src="js/levelgen.js"></script>
+  <script src="js/player.js"></script>
+  <script src="js/enemies.js"></script>
+  <script src="js/boss.js"></script>
+  <script src="js/items.js"></script>
+  <script src="js/notesui.js"></script>
+  <script src="js/home.js"></script>
+  <script src="songs/songs.js"></script>
+  <script src="js/game.js"></script>
+</body>
+</html>
