@@ -1,5 +1,5 @@
-// game.js … シーン管理・ゲームループ・カメラ・HUD(Step2は固定テストレベル)
-// シーン: title(タップして開始) / stage(テストレベル) / calibration(較正)
+// game.js … シーン管理・ゲームループ・カメラ・HUD・リザルト(Step3: 自動生成レベル)
+// シーン: title(タップして開始) / stage(自動生成レベル) / result(リザルト) / calibration(較正)
 // 描画・トゥイーンはrAF、拍・判定は全てConductor経由。
 
 const Game = (() => {
@@ -11,15 +11,18 @@ const Game = (() => {
   let canvas, g;
   let scene = "title";
 
-  // 統計
+  // 統計(現在ステージ)
   let combo = 0;
   let taps = 0;
+  let maxCombo = 0;
+  let judgeStats = { perfect: 0, good: 0, miss: 0 }; // 判定内訳
+  let goalBeat = 0;      // ゴール到達時の経過拍数(所要拍数)
 
   // ステージ状態
   let level = null;
+  let curSeed = 0;       // 現在レベルのseed
   const cam = { x: 0, y: 0 };
   let goalReached = false;
-  let goalTimer = 0;      // GOAL表示からの経過秒(2秒で先頭再開)
   let missFlash = 0;      // ミス演出の残り秒
 
   // 較正シーンの状態
@@ -68,6 +71,7 @@ const Game = (() => {
       (e) => {
         e.preventDefault();
         if (scene === "title") startFromTitle();
+        else if (scene === "result") restartFromResult();
       },
       { passive: false }
     );
@@ -138,16 +142,20 @@ const Game = (() => {
     return Math.max(lo, Math.min(hi, cx));
   }
 
-  function startLevel() {
-    level = LevelGen.parse(LevelGen.testLevel());
+  // 新しいレベルを自動生成して状態を初期化。seed省略時は時刻から新規seed。
+  function startLevel(seed) {
+    curSeed = (seed === undefined) ? (Date.now() >>> 0) : (seed >>> 0);
+    level = LevelGen.generate({ totalBeats: CONFIG.STAGE.TEST_BEATS, seed: curSeed });
     Player.init(level);
     const p = Player.pos();
     cam.y = level.h / 2;
     cam.x = clampCamX(p.x);
     goalReached = false;
-    goalTimer = 0;
     combo = 0;
     taps = 0;
+    maxCombo = 0;
+    judgeStats = { perfect: 0, good: 0, miss: 0 };
+    goalBeat = 0;
     missFlash = 0;
   }
 
@@ -159,6 +167,21 @@ const Game = (() => {
     if (!Conductor.running) {
       Conductor.start({ bpm: CONFIG.METRONOME.BPM, offset: 0, startDelay: 1.0 });
     }
+    applySceneUI();
+  }
+
+  // ゴール到達 → リザルトシーン。メトロノームを止めて成績を提示する。
+  function gotoResult() {
+    scene = "result";
+    Conductor.stop();
+    applySceneUI();
+  }
+
+  // リザルトからタップで再出撃。新しいseedで再生成しメトロノームも再開。
+  function restartFromResult() {
+    scene = "stage";
+    startLevel();
+    Conductor.start({ bpm: CONFIG.METRONOME.BPM, offset: 0, startDelay: 1.0 });
     applySceneUI();
   }
 
@@ -174,6 +197,11 @@ const Game = (() => {
     el.controls.style.display = showControls ? "flex" : "none";
     el.btnCalib.style.display = scene === "stage" ? "block" : "none";
     el.calibPanel.classList.toggle("hidden", scene !== "calibration");
+  }
+
+  // ゴール到達時にテレポート検証で使う所要拍(デバッグ用)
+  function currentBeatOrZero() {
+    return Conductor.running ? Conductor.currentBeat() : 0;
   }
 
   // ---- 較正 ----
@@ -230,9 +258,13 @@ const Game = (() => {
 
     if (res.verdict === "MISS") {
       combo = 0;
+      judgeStats.miss++;
       missFlash = 0.22; // ミス演出(軽い暗転)
     } else {
       combo++;
+      if (combo > maxCombo) maxCombo = combo;
+      if (res.verdict === "PERFECT") judgeStats.perfect++;
+      else judgeStats.good++;
       Player.act(type, res.verdict);
     }
     NotesUI.popJudge(res.verdict, res.diffMs);
@@ -299,14 +331,11 @@ const Game = (() => {
     const target = clampCamX(p.x + p.dir * CONFIG.CAMERA.FORWARD_TILES);
     cam.x += (target - cam.x) * CONFIG.CAMERA.LERP;
 
-    // ゴール判定(同タイル)
+    // ゴール判定(同タイル)→ リザルトへ
     if (!goalReached && p.tx === level.goalX && p.ty === level.goalY) {
       goalReached = true;
-      goalTimer = 0;
-    }
-    if (goalReached) {
-      goalTimer += dt;
-      if (goalTimer >= 2) startLevel(); // 先頭から再開
+      goalBeat = currentBeatOrZero();
+      gotoResult();
     }
   }
 
@@ -323,13 +352,15 @@ const Game = (() => {
       g.fillStyle = "#05060a";
       g.fillRect(0, 0, VW, VH);
       renderTitle();
+    } else if (scene === "result") {
+      renderBackground();
+      renderResult();
     } else {
       renderBackground();
       renderWorld();
       Player.draw(g, cam);
       NotesUI.draw(g, VW, VH);
       renderHUD();
-      if (goalReached) renderGoalBanner();
       if (missFlash > 0) {
         g.fillStyle = `rgba(255,60,80,${0.35 * (missFlash / 0.22)})`;
         g.fillRect(0, 0, VW, VH);
@@ -393,8 +424,36 @@ const Game = (() => {
         g.strokeRect(sx + 1, sy + 1, TILE - 2, TILE - 2);
       }
     }
+    // スポーン候補マーカー(Step4/6で実体に置換予定のプレースホルダ)
+    renderSpawns(cLo, cHi);
     // ゴール旗
     drawGoal();
+  }
+
+  // スポーン候補の可視化(仮): E=赤丸枠 / C=黄小円 / I=緑四角枠
+  function renderSpawns(cLo, cHi) {
+    if (!level.spawns) return;
+    for (const s of level.spawns) {
+      if (s.tx < cLo || s.tx > cHi) continue;
+      const cx = tileScreenX(s.tx) + TILE / 2;
+      const cy = tileScreenY(s.ty) + TILE / 2;
+      if (s.type === "E") {
+        g.strokeStyle = "rgba(255,90,110,0.7)";
+        g.lineWidth = 3;
+        g.beginPath();
+        g.arc(cx, cy, TILE * 0.32, 0, Math.PI * 2);
+        g.stroke();
+      } else if (s.type === "C") {
+        g.fillStyle = "rgba(255,213,74,0.85)";
+        g.beginPath();
+        g.arc(cx, cy, TILE * 0.16, 0, Math.PI * 2);
+        g.fill();
+      } else if (s.type === "I") {
+        g.strokeStyle = "rgba(90,223,122,0.8)";
+        g.lineWidth = 3;
+        g.strokeRect(cx - TILE * 0.26, cy - TILE * 0.26, TILE * 0.52, TILE * 0.52);
+      }
+    }
   }
 
   function drawGoal() {
@@ -421,11 +480,46 @@ const Game = (() => {
     g.fill();
   }
 
-  function renderGoalBanner() {
+  // リザルト画面(Canvas描画)。判定内訳・最大コンボ・総タップ・所要拍数を提示。
+  function renderResult() {
+    // 半透明の暗幕でステージ背景を落ち着かせる
+    g.fillStyle = "rgba(5,6,14,0.72)";
+    g.fillRect(0, 0, VW, VH);
+
     g.textAlign = "center";
-    g.font = "bold 96px sans-serif";
     g.fillStyle = "#ffd54a";
-    g.fillText("GOAL!", VW / 2, VH / 2);
+    g.font = "bold 110px sans-serif";
+    g.fillText("CLEAR!", VW / 2, 220);
+
+    // 判定内訳
+    const rows = [
+      ["PERFECT", judgeStats.perfect, "#ffd54a"],
+      ["GOOD", judgeStats.good, "#5adf7a"],
+      ["MISS", judgeStats.miss, "#ff5a6a"],
+      ["最大コンボ", maxCombo, "#e8ecff"],
+      ["総タップ", taps, "#e8ecff"],
+      ["所要拍数", Math.max(0, Math.round(goalBeat)), "#e8ecff"],
+    ];
+    g.font = "bold 40px sans-serif";
+    let y = 320;
+    for (const [label, val, col] of rows) {
+      g.textAlign = "right";
+      g.fillStyle = "#aeb6d6";
+      g.fillText(label, VW / 2 - 30, y);
+      g.textAlign = "left";
+      g.fillStyle = col;
+      g.fillText(String(val), VW / 2 + 30, y);
+      y += 56;
+    }
+
+    // 再出撃の案内(点滅)
+    g.textAlign = "center";
+    const blink = 0.5 + 0.5 * Math.sin(performance.now() / 350);
+    g.globalAlpha = 0.4 + 0.6 * blink;
+    g.fillStyle = "#9fb4ff";
+    g.font = "36px sans-serif";
+    g.fillText("タップで再出撃", VW / 2, VH - 60);
+    g.globalAlpha = 1;
   }
 
   function renderHUD() {
@@ -460,6 +554,10 @@ const Game = (() => {
         (Conductor.running ? Conductor.currentBeat().toFixed(3) : "-")
     );
     lines.push("calibration: " + Conductor.getCalibration() + "ms");
+    if (level) {
+      lines.push(`seed: ${curSeed}`);
+      lines.push(`chunkCount: ${level.chunkCount}  goalDist: ${level.goalDist.toFixed(1)}`);
+    }
     if (scene === "stage" && level) {
       const p = Player.pos();
       lines.push(`player tx,ty: ${p.tx},${p.ty}  state: ${p.state}`);
@@ -507,7 +605,14 @@ const Game = (() => {
     get taps() { return taps; },
     get cam() { return cam; },
     get level() { return level; },
+    get seed() { return curSeed; },
     _gotoStage: gotoStage,
     _gotoCalibration: gotoCalibration,
+    // 検証用:任意seedでレベル再生成 / ゴール直前へテレポート
+    _startLevel: startLevel,
+    _teleportToGoal() {
+      if (!level) return;
+      Player._debugSetTile(level.goalX, level.goalY);
+    },
   };
 })();

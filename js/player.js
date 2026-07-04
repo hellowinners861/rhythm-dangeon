@@ -265,5 +265,12 @@ const Player = (() => {
     return { tx, ty, x, y, dir, state };
   }
 
-  return { init, act, update, draw, pos };
+  // デバッグ用:プレイヤーを指定タイルへ即移動(検証のゴール到達テスト等で使用)
+  function _debugSetTile(ntx, nty) {
+    tx = ntx; ty = nty; x = ntx; y = nty;
+    state = "idle"; vy = 0;
+    xt.active = false; yt.active = false;
+  }
+
+  return { init, act, update, draw, pos, _debugSetTile };
 })();
