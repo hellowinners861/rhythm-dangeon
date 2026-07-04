@@ -1,10 +1,11 @@
-// game.js … シーン管理・ゲームループ・カメラ・HUD(Step1はリズムテスト)
-// シーン: title(タップして開始) / test(リズムテスト) / calibration(較正)
-// 描画はrAF、拍・判定は全てConductor経由。
+// game.js … シーン管理・ゲームループ・カメラ・HUD(Step2は固定テストレベル)
+// シーン: title(タップして開始) / stage(テストレベル) / calibration(較正)
+// 描画・トゥイーンはrAF、拍・判定は全てConductor経由。
 
 const Game = (() => {
   const VW = CONFIG.VIEW.W;
   const VH = CONFIG.VIEW.H;
+  const TILE = CONFIG.TILE;
   const DEBUG = /[?&]debug=1\b/.test(location.search);
 
   let canvas, g;
@@ -14,8 +15,12 @@ const Game = (() => {
   let combo = 0;
   let taps = 0;
 
-  // プレースホルダキャラの仮リアクション {type, born}(bornは描画補間用のperformance.now)
-  let react = null;
+  // ステージ状態
+  let level = null;
+  const cam = { x: 0, y: 0 };
+  let goalReached = false;
+  let goalTimer = 0;      // GOAL表示からの経過秒(2秒で先頭再開)
+  let missFlash = 0;      // ミス演出の残り秒
 
   // 較正シーンの状態
   const calib = {
@@ -74,7 +79,7 @@ const Game = (() => {
     });
     el.btnBack.addEventListener("pointerdown", (e) => {
       e.preventDefault();
-      gotoTest();
+      gotoStage();
     });
     el.btnRetry.addEventListener("pointerdown", (e) => {
       e.preventDefault();
@@ -84,11 +89,11 @@ const Game = (() => {
       e.preventDefault();
       saveCalibration();
     });
-    // スライダー:変更は即Conductorへ反映(保存はSaveボタン or 確定時)
+    // スライダー:変更は即Conductorへ反映(手動調整は即保存)
     el.slider.addEventListener("input", () => {
       const ms = parseInt(el.slider.value, 10) || 0;
       el.sliderVal.textContent = ms + "ms";
-      Conductor.setCalibration(ms); // 手動調整は即保存
+      Conductor.setCalibration(ms);
     });
 
     applySceneUI();
@@ -120,12 +125,36 @@ const Game = (() => {
   // ---- シーン遷移 ----
   function startFromTitle() {
     SFX.resume().then(() => {
-      gotoTest();
+      gotoStage();
     });
   }
 
-  function gotoTest() {
-    scene = "test";
+  // カメラのX方向クランプ範囲(レベル端で見切れないように)
+  function camMinX() { return VW / (2 * TILE) - 0.5; }
+  function camMaxX() { return level.w - VW / (2 * TILE) - 0.5; }
+  function clampCamX(cx) {
+    const lo = camMinX(), hi = camMaxX();
+    if (hi < lo) return (level.w - 1) / 2; // レベルが視界より狭い場合は中央
+    return Math.max(lo, Math.min(hi, cx));
+  }
+
+  function startLevel() {
+    level = LevelGen.parse(LevelGen.testLevel());
+    Player.init(level);
+    const p = Player.pos();
+    cam.y = level.h / 2;
+    cam.x = clampCamX(p.x);
+    goalReached = false;
+    goalTimer = 0;
+    combo = 0;
+    taps = 0;
+    missFlash = 0;
+  }
+
+  function gotoStage() {
+    const fresh = scene !== "calibration"; // 較正から戻る時はレベルを維持
+    scene = "stage";
+    if (fresh || !level) startLevel();
     // メトロノーム開始(未起動なら)。offset=0, startDelay=1.0
     if (!Conductor.running) {
       Conductor.start({ bpm: CONFIG.METRONOME.BPM, offset: 0, startDelay: 1.0 });
@@ -141,9 +170,9 @@ const Game = (() => {
   }
 
   function applySceneUI() {
-    const showControls = scene === "test" || scene === "calibration";
+    const showControls = scene === "stage" || scene === "calibration";
     el.controls.style.display = showControls ? "flex" : "none";
-    el.btnCalib.style.display = scene === "test" ? "block" : "none";
+    el.btnCalib.style.display = scene === "stage" ? "block" : "none";
     el.calibPanel.classList.toggle("hidden", scene !== "calibration");
   }
 
@@ -186,24 +215,25 @@ const Game = (() => {
 
   // ---- 入力ハンドラ ----
   function onAction(type, ctxTime) {
-    if (scene === "test") {
-      handleTestInput(type, ctxTime);
+    if (scene === "stage") {
+      handleStageInput(type, ctxTime);
     } else if (scene === "calibration") {
       handleCalibInput(type, ctxTime);
     }
   }
 
-  function handleTestInput(type, ctxTime) {
+  function handleStageInput(type, ctxTime) {
+    if (goalReached) return; // GOAL演出中は入力を受けない
     taps++;
     const res = Conductor.judge(ctxTime);
     pushRecentDiff(res.diffMs);
 
     if (res.verdict === "MISS") {
       combo = 0;
+      missFlash = 0.22; // ミス演出(軽い暗転)
     } else {
       combo++;
-      // 判定成立時のみ仮リアクション
-      react = { type, born: performance.now() };
+      Player.act(type, res.verdict);
     }
     NotesUI.popJudge(res.verdict, res.diffMs);
     SFX.judge(res.verdict);
@@ -211,7 +241,6 @@ const Game = (() => {
 
   function handleCalibInput(type, ctxTime) {
     // 較正は判定窓を無視し、最寄り拍との生のdiffMsだけ集める
-    // (Conductor.judgeは較正適用+二重判定があるため直接算出する)
     const n = nearestBeatDiff(ctxTime);
     calib.diffs.push(n);
     pushRecentDiff(n);
@@ -227,12 +256,9 @@ const Game = (() => {
   // 生の入力ctx時刻から最寄り拍とのdiffMs(較正非適用)を返す
   function nearestBeatDiff(ctxTime) {
     const bpm = Conductor.bpm;
-    // 最寄り拍を探索
     let best = 0;
     let bestAbs = Infinity;
-    const approx = Math.round(
-      (ctxTime - Conductor.beatTime(0)) * bpm / 60
-    );
+    const approx = Math.round((ctxTime - Conductor.beatTime(0)) * bpm / 60);
     for (let n = approx - 1; n <= approx + 1; n++) {
       const d = (ctxTime - Conductor.beatTime(n)) * 1000;
       if (Math.abs(d) < bestAbs) {
@@ -248,34 +274,66 @@ const Game = (() => {
     if (recentDiffs.length > 10) recentDiffs.shift();
   }
 
-  // ---- メインループ(描画のみ) ----
+  // ---- メインループ(描画・トゥイーン) ----
   function loop(ts) {
-    // fps(描画補間目的なのでrAFタイムスタンプ可)
+    let dt = 0;
     if (lastFrameT) {
-      const dt = ts - lastFrameT;
-      if (dt > 0) fps = fps * 0.9 + (1000 / dt) * 0.1;
+      dt = (ts - lastFrameT) / 1000; // 秒
+      if (dt > 0) fps = fps * 0.9 + (1 / dt) * 0.1;
     }
     lastFrameT = ts;
+    if (dt > 0.1) dt = 0.1; // タブ復帰などの大ジャンプを抑制
+
+    if (scene === "stage") updateStage(dt);
 
     render();
     requestAnimationFrame(loop);
   }
 
+  function updateStage(dt) {
+    Player.update(dt);
+    if (missFlash > 0) missFlash = Math.max(0, missFlash - dt);
+
+    const p = Player.pos();
+    // カメラ:プレイヤー描画X+向き先読みへLERP追従、レベル端でクランプ
+    const target = clampCamX(p.x + p.dir * CONFIG.CAMERA.FORWARD_TILES);
+    cam.x += (target - cam.x) * CONFIG.CAMERA.LERP;
+
+    // ゴール判定(同タイル)
+    if (!goalReached && p.tx === level.goalX && p.ty === level.goalY) {
+      goalReached = true;
+      goalTimer = 0;
+    }
+    if (goalReached) {
+      goalTimer += dt;
+      if (goalTimer >= 2) startLevel(); // 先頭から再開
+    }
+  }
+
+  // ワールド→スクリーン変換(タイルの左上px)
+  function tileScreenX(col) { return (col - cam.x) * TILE + VW / 2 - TILE / 2; }
+  function tileScreenY(row) { return (row - cam.y) * TILE + VH / 2 - TILE / 2; }
+
+  // ---- 描画 ----
   function render() {
-    // 論理1600×900へ変換
     g.setTransform(canvas.width / VW, 0, 0, canvas.height / VH, 0, 0);
     g.clearRect(0, 0, VW, VH);
 
-    // 背景
-    g.fillStyle = "#05060a";
-    g.fillRect(0, 0, VW, VH);
-
     if (scene === "title") {
+      g.fillStyle = "#05060a";
+      g.fillRect(0, 0, VW, VH);
       renderTitle();
     } else {
-      renderPlayfield();
+      renderBackground();
+      renderWorld();
+      Player.draw(g, cam);
       NotesUI.draw(g, VW, VH);
       renderHUD();
+      if (goalReached) renderGoalBanner();
+      if (missFlash > 0) {
+        g.fillStyle = `rgba(255,60,80,${0.35 * (missFlash / 0.22)})`;
+        g.fillRect(0, 0, VW, VH);
+      }
     }
 
     if (DEBUG) renderDebug();
@@ -288,70 +346,86 @@ const Game = (() => {
     g.fillText("リズムダンジョン", VW / 2, VH / 2 - 40);
     g.font = "36px sans-serif";
     g.fillStyle = "#9fb4ff";
-    // 点滅
     const blink = 0.5 + 0.5 * Math.sin(performance.now() / 350);
     g.globalAlpha = 0.4 + 0.6 * blink;
     g.fillText("タップして開始", VW / 2, VH / 2 + 60);
     g.globalAlpha = 1;
   }
 
-  function renderPlayfield() {
-    // 拍に同期した軽い床パルス(見た目のみ)
+  // 背景:拍パルスの簡素なグラデーション
+  function renderBackground() {
     let beatPulse = 0;
     if (Conductor.running) {
       const b = Conductor.currentBeat();
       const frac = b - Math.floor(b);
       beatPulse = Math.max(0, 1 - frac * 2); // 拍頭で1→0
     }
+    const grad = g.createLinearGradient(0, 0, 0, VH);
+    const top = 12 + beatPulse * 22;
+    grad.addColorStop(0, `hsl(230, 45%, ${8 + beatPulse * 6}%)`);
+    grad.addColorStop(1, `hsl(250, 40%, ${top}%)`);
+    g.fillStyle = grad;
+    g.fillRect(0, 0, VW, VH);
+  }
 
-    // プレースホルダキャラ(丸+目)
-    const baseX = VW / 2;
-    const baseY = VH / 2 + 30;
-    let dx = 0;
-    let dy = 0;
-    let scale = 1;
-    if (react) {
-      const age = performance.now() - react.born;
-      const dur = 260;
-      if (age > dur) {
-        react = null;
-      } else {
-        const t = age / dur;
-        const bump = Math.sin(t * Math.PI); // 0→1→0
-        if (react.type === "jump") dy = -120 * bump;
-        else if (react.type === "left") dx = -70 * bump;
-        else if (react.type === "right") dx = 70 * bump;
-        else if (react.type === "attack") scale = 1 + 0.25 * bump;
+  // タイルワールド描画(可視範囲のみ)
+  function renderWorld() {
+    const cLo = Math.floor(cam.x - VW / (2 * TILE) - 1);
+    const cHi = Math.ceil(cam.x + VW / (2 * TILE) + 1);
+    for (let row = 0; row < level.h; row++) {
+      for (let col = cLo; col <= cHi; col++) {
+        if (!LevelGen.solidAt(level, col, row)) continue;
+        // 範囲外(左右外の壁)は描かない(見た目は空扱いでよい)
+        if (col < 0 || col >= level.w) continue;
+        const sx = tileScreenX(col);
+        const sy = tileScreenY(row);
+        // ブロック本体
+        g.fillStyle = "#2b3252";
+        g.fillRect(sx, sy, TILE, TILE);
+        // 上面が空なら明るいハイライト(地表の縁)
+        if (!LevelGen.solidAt(level, col, row - 1)) {
+          g.fillStyle = "#4a5688";
+          g.fillRect(sx, sy, TILE, 8);
+        }
+        // 内側の陰影で立体感
+        g.strokeStyle = "rgba(0,0,0,0.25)";
+        g.lineWidth = 2;
+        g.strokeRect(sx + 1, sy + 1, TILE - 2, TILE - 2);
       }
     }
+    // ゴール旗
+    drawGoal();
+  }
 
-    const cx = baseX + dx;
-    const cy = baseY + dy;
-    const r = 70 * scale;
+  function drawGoal() {
+    const sx = tileScreenX(level.goalX);
+    const sy = tileScreenY(level.goalY);
+    const poleX = sx + TILE * 0.3;
+    const topY = sy + TILE * 0.05;
+    const botY = sy + TILE;
+    // ポール
+    g.strokeStyle = "#e8ecff";
+    g.lineWidth = 5;
+    g.beginPath();
+    g.moveTo(poleX, topY);
+    g.lineTo(poleX, botY);
+    g.stroke();
+    // 旗(拍でなびく簡素な演出)
+    const wave = Conductor.running ? Math.sin(performance.now() / 200) * 6 : 0;
+    g.fillStyle = "#ffd54a";
+    g.beginPath();
+    g.moveTo(poleX, topY);
+    g.lineTo(poleX + TILE * 0.5, topY + TILE * 0.12 + wave);
+    g.lineTo(poleX, topY + TILE * 0.28);
+    g.closePath();
+    g.fill();
+  }
 
-    // 影
-    g.fillStyle = "rgba(0,0,0,0.35)";
-    g.beginPath();
-    g.ellipse(baseX, baseY + 78, 60, 16, 0, 0, Math.PI * 2);
-    g.fill();
-
-    // 体
-    g.fillStyle = `hsl(${210 + beatPulse * 30}, 70%, ${58 + beatPulse * 12}%)`;
-    g.beginPath();
-    g.arc(cx, cy, r, 0, Math.PI * 2);
-    g.fill();
-
-    // 目
-    g.fillStyle = "#fff";
-    g.beginPath();
-    g.arc(cx - 24, cy - 12, 15, 0, Math.PI * 2);
-    g.arc(cx + 24, cy - 12, 15, 0, Math.PI * 2);
-    g.fill();
-    g.fillStyle = "#12141c";
-    g.beginPath();
-    g.arc(cx - 22, cy - 10, 7, 0, Math.PI * 2);
-    g.arc(cx + 26, cy - 10, 7, 0, Math.PI * 2);
-    g.fill();
+  function renderGoalBanner() {
+    g.textAlign = "center";
+    g.font = "bold 96px sans-serif";
+    g.fillStyle = "#ffd54a";
+    g.fillText("GOAL!", VW / 2, VH / 2);
   }
 
   function renderHUD() {
@@ -386,6 +460,11 @@ const Game = (() => {
         (Conductor.running ? Conductor.currentBeat().toFixed(3) : "-")
     );
     lines.push("calibration: " + Conductor.getCalibration() + "ms");
+    if (scene === "stage" && level) {
+      const p = Player.pos();
+      lines.push(`player tx,ty: ${p.tx},${p.ty}  state: ${p.state}`);
+      lines.push(`cam.x: ${cam.x.toFixed(2)}`);
+    }
     const avg =
       recentDiffs.length > 0
         ? recentDiffs.reduce((a, b) => a + b, 0) / recentDiffs.length
@@ -393,10 +472,9 @@ const Game = (() => {
     lines.push("avg diff: " + avg.toFixed(1) + "ms");
     lines.push("diffs(直近10):");
 
-    // 較正ボタン(DOM)と重ならないよう少し下げる
     const oy = 96;
     g.fillStyle = "rgba(0,0,0,0.5)";
-    g.fillRect(8, oy, 360, 30 + (lines.length + recentDiffs.length) * 22);
+    g.fillRect(8, oy, 380, 30 + (lines.length + recentDiffs.length) * 22);
     g.fillStyle = "#7CFC00";
     let y = oy + 24;
     for (const ln of lines) {
@@ -427,7 +505,9 @@ const Game = (() => {
     get scene() { return scene; },
     get combo() { return combo; },
     get taps() { return taps; },
-    _gotoTest: gotoTest,
+    get cam() { return cam; },
+    get level() { return level; },
+    _gotoStage: gotoStage,
     _gotoCalibration: gotoCalibration,
   };
 })();

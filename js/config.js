@@ -18,8 +18,25 @@ const CONFIG = {
   // コンボ/フィーバー。FEVER_COMBO以上でフィーバー(Step5以降で演出)
   COMBO: { FEVER_COMBO: 16 },
 
+  // 1タイルの論理px(1600×900で横20タイルぶんの視界)
+  TILE: 80,
+
+  // プレイヤーの物理(拍ゲート式アクション基盤。DESIGN §3)
+  PHYSICS: {
+    MOVE_TWEEN_BEATS: 0.4,   // 移動トゥイーンの所要拍
+    JUMP_RISE_TILES: 2,      // ジャンプ上昇タイル数
+    JUMP_RISE_BEATS: 0.5,    // 上昇の所要拍
+    GRAVITY_TILES: 22,       // 落下加速度(タイル/s^2)
+    MAX_FALL_TILES: 14,      // 最大落下速度(タイル/s)
+  },
+
+  // 追従カメラ(DESIGN §6)
+  CAMERA: {
+    FORWARD_TILES: 3,        // 進行方向の先読みオフセット(タイル)
+    LERP: 0.12,              // 毎フレームの追従率
+  },
+
   // --- 以降のステップで追記予定 ---
-  // PHYSICS: {...},      // 重力・トゥイーン・ジャンプ高さ
   // STAGE: {...},        // ADVANCE_RATE・チャンク幅
   // CHARACTERS: {...},   // 3キャラのHP/威力/射程/CD/解放価格
   // ENEMIES: {...},      // ザコ12種
