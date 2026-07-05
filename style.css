@@ -205,8 +205,6 @@ html, body {
 .home-btn.small { min-height: 30px; font-size: 12px; padding: 5px 10px; }
 
 .launch-btn {
-  margin: 4px auto 0;
-  width: min(55%, 240px);
   font-weight: bold;
   font-size: 18px;
   background: #ffd54a;
@@ -266,8 +264,8 @@ html, body {
   margin-bottom: 2px;
   font-weight: normal;
 }
-.ready-section-shop { display: flex; justify-content: center; }
-.ready-section-shop .home-btn { width: min(60%, 220px); }
+.ready-section-shop { display: flex; justify-content: center; gap: 8px; }
+.ready-section-shop .home-btn { width: min(45%, 220px); }
 
 .char-slots {
   display: flex;
@@ -297,8 +295,9 @@ html, body {
 .char-price { font-size: 9px; color: #ffd54a; }
 
 .equip-slots {
-  display: flex;
-  flex-direction: column;
+  /* 2×2グリッド: 縦390pxの画面で曲・ショップ・いざ!が下にはみ出るのを防ぐ */
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 4px;
 }
 .equip-slot {
@@ -316,8 +315,9 @@ html, body {
 
 /* ---- 曲選択(出撃準備。改修バッチ) ---- */
 .song-slots {
-  display: flex;
-  flex-direction: column;
+  /* 横2列グリッド: 縦390pxの画面で曲リストが下にはみ出て見えなくなるのを防ぐ */
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 4px;
 }
 .song-slot {
