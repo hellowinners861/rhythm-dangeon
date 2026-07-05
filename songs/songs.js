@@ -4,7 +4,7 @@
 const SONGS = [
   {
     id: "song01",
-    title: "Song 01(仮)",        // 曲名判明後に差し替え
+    title: "アダチレイ・アダチレイ",
     audio: "songs/song01.mp3",
     bpm: 110,
     offset: 0.24,                 // 最初の1拍目までの秒数(実測)
@@ -21,6 +21,26 @@ const SONGS = [
       { from: 200, to: 204, div: 1, mood: "build"  },
       { from: 204, to: 248, div: 2, mood: "chorus", fever: true },
       { from: 248, to: 263, div: 1, mood: "outro"  },
+    ],
+  },
+  {
+    id: "song02",
+    title: "2代目閻魔",
+    audio: "songs/song02.mp3",
+    bpm: 135,
+    offset: 0.06,
+    durationSec: 194.93,
+    bpmChanges: [],
+    chart: [
+      { from: 0,   to: 16,  div: 1, mood: "intro"  },
+      { from: 16,  to: 124, div: 1, mood: "verse"  },
+      { from: 124, to: 160, div: 2, mood: "chorus", fever: true },
+      { from: 160, to: 200, div: 1, mood: "verse"  },
+      { from: 200, to: 204, div: 0, mood: "break"  },
+      { from: 204, to: 320, div: 1, mood: "verse"  },
+      { from: 320, to: 360, div: 2, mood: "chorus", fever: true },
+      { from: 360, to: 424, div: 1, mood: "verse"  },
+      { from: 424, to: 438, div: 1, mood: "outro"  },
     ],
   },
 ];

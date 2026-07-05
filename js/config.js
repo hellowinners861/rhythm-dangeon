@@ -32,6 +32,7 @@ const CONFIG = {
     JUMP_RISE_BEATS: 0.5,    // 上昇の所要拍
     GRAVITY_TILES: 22,       // 落下加速度(タイル/s^2)
     MAX_FALL_TILES: 14,      // 最大落下速度(タイル/s)
+    AIR_JUMPS: 1,            // 空中ジャンプ(2段ジャンプ)の追加可能回数。着地でリセット(改修バッチ)
   },
 
   // 追従カメラ(DESIGN §6)

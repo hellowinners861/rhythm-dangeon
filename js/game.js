@@ -135,8 +135,11 @@ const Game = (() => {
     if (typeof Equip !== "undefined") Equip.refresh();
 
     // 楽曲を先読みロード(タイトルは「読み込み中…」表示)。失敗時もメトロノームで続行。
+    // 出撃準備で選択中の曲(SAVE.data.selectedSong)を読み込む。不正・未設定時はSONGS[0]にフォールバック。
     if (typeof SONGS !== "undefined" && SONGS.length > 0) {
-      Conductor.loadSong(SONGS[0]).then(() => { songReady = true; });
+      const sid = SAVE.data.selectedSong || "song01";
+      const initialSong = SONGS.find((s) => s.id === sid) || SONGS[0];
+      Conductor.loadSong(initialSong).then(() => { songReady = true; });
     }
     el.slider.min = String(-CONFIG.CALIBRATION.MANUAL_RANGE_MS);
     el.slider.max = String(CONFIG.CALIBRATION.MANUAL_RANGE_MS);
@@ -1254,7 +1257,19 @@ const Game = (() => {
     g.fillText("💰" + n, ox, oy);
   }
 
-  // ブースト拾得アイテムの残り拍数(HUD左上・コインの下)。DESIGN §8・Step7
+  // 再生中の曲名(HUD左上・ハート/コインの下)。半透明・小フォントでHUDの邪魔をしない(改修バッチ)。
+  function drawSongNameHUD(ox, oy) {
+    const song = Conductor.currentSong;
+    if (!song) return;
+    g.textAlign = "left";
+    g.globalAlpha = 0.62;
+    g.fillStyle = "#aeb6d6";
+    g.font = "18px sans-serif";
+    g.fillText("♪ " + song.title, ox, oy);
+    g.globalAlpha = 1;
+  }
+
+  // ブースト拾得アイテムの残り拍数(HUD左上・曲名表示の下)。DESIGN §8・Step7
   function drawBoostHUD(ox, oy) {
     if (!Player.isBoosted || !Player.isBoosted()) return;
     g.textAlign = "left";
@@ -1350,7 +1365,8 @@ const Game = (() => {
     // 左上:HPハート、その下にコイン所持数、ブースト中はさらにその下に残り拍数
     drawHearts(24, 34);
     drawCoinsHUD(24, 70);
-    drawBoostHUD(24, 100);
+    drawSongNameHUD(24, 96);
+    drawBoostHUD(24, 124);
 
     // 右上:コンボ / タップ(小さく常時表示)
     g.textAlign = "right";

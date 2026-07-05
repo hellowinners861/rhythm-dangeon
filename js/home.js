@@ -18,6 +18,10 @@ const Home = (() => {
   let jukeboxSource = null;
   let jukeboxPlayingId = null;
 
+  // 出撃準備の曲選択:読み込み中は「いざ!」を無効化する(改修バッチ・Step9)。
+  // songLoadTokenは選択が連続で切り替わった時に古いloadSongの完了を無視するためのガード。
+  let songLoadToken = 0;
+
   function $(id) { return document.getElementById(id); }
 
   function init() {
@@ -60,41 +64,46 @@ const Home = (() => {
     el.btnJukeboxBack = $("btn-jukebox-back");
     el.jukeboxList = $("jukebox-list");
 
+    el.songSlots = $("song-slots");
+
     wire();
   }
 
   // pointerdownを共通ハンドリング(較正パネル等の既存ボタンと同じ流儀)。
-  // メニューの全ボタンにSFX.uiを鳴らす(DESIGN §9・Step9)。
-  function tap(elm, fn) {
+  // kindでボタンの種類ごとにSFXを鳴らし分ける(改修バッチ・Step9)。kind省略時は"select"扱い(後方互換)。
+  // kindを関数で渡すと、タップ時点の状態(所持コイン等)で音を出し分けられる(購入成立/失敗など)。
+  function tap(elm, fn, kind) {
     if (!elm) return;
     elm.addEventListener("pointerdown", (e) => {
       e.preventDefault();
-      if (typeof SFX !== "undefined" && SFX.ui) SFX.ui();
+      if (typeof SFX !== "undefined" && SFX.ui) {
+        SFX.ui(typeof kind === "function" ? kind() : kind);
+      }
       fn(e);
     }, { passive: false });
   }
 
   function wire() {
-    tap(el.btnModeGame, () => Game._gotoReady());
-    tap(el.btnModeOptions, () => Game._gotoOptions());
-    tap(el.btnModeJukebox, () => Game._gotoJukebox());
+    tap(el.btnModeGame, () => Game._gotoReady(), "confirm");
+    tap(el.btnModeOptions, () => Game._gotoOptions(), "confirm");
+    tap(el.btnModeJukebox, () => Game._gotoJukebox(), "confirm");
 
-    tap(el.btnReadyBack, () => Game._gotoModeSelect());
+    tap(el.btnReadyBack, () => Game._gotoModeSelect(), "back");
     tap(el.btnOpenShop, () => openShop());
-    tap(el.btnLaunch, () => Game._gotoStage());
+    tap(el.btnLaunch, () => { if (!el.btnLaunch.disabled) Game._gotoStage(); }, "launch");
 
-    tap(el.btnEquipPickerClose, () => closeModal("screen-equip-picker"));
-    tap(el.btnShopClose, () => closeModal("screen-shop"));
+    tap(el.btnEquipPickerClose, () => closeModal("screen-equip-picker"), "back");
+    tap(el.btnShopClose, () => closeModal("screen-shop"), "back");
 
-    tap(el.btnCharConfirmYes, () => confirmCharUnlock());
-    tap(el.btnCharConfirmNo, () => closeModal("screen-char-confirm"));
+    tap(el.btnCharConfirmYes, () => confirmCharUnlock(), "confirm");
+    tap(el.btnCharConfirmNo, () => closeModal("screen-char-confirm"), "back");
 
-    tap(el.btnOptionsBack, () => Game._gotoModeSelect());
+    tap(el.btnOptionsBack, () => Game._gotoModeSelect(), "back");
     tap(el.btnSaveReset, () => showModal("screen-reset-confirm"));
-    tap(el.btnResetYes, () => doResetSave());
-    tap(el.btnResetNo, () => closeModal("screen-reset-confirm"));
+    tap(el.btnResetYes, () => doResetSave(), "confirm");
+    tap(el.btnResetNo, () => closeModal("screen-reset-confirm"), "back");
 
-    tap(el.btnJukeboxBack, () => { stopJukebox(); Game._gotoModeSelect(); });
+    tap(el.btnJukeboxBack, () => { stopJukebox(); Game._gotoModeSelect(); }, "back");
 
     if (el.volBgm) {
       el.volBgm.addEventListener("input", () => {
@@ -142,6 +151,7 @@ const Home = (() => {
   function showReady() {
     show("screen-ready");
     renderReady();
+    ensureSelectedSongLoaded();
   }
 
   function showOptions() {
@@ -161,6 +171,68 @@ const Home = (() => {
     renderStageSelect();
     renderCharSlots();
     renderEquipSlots();
+    renderSongSlots();
+  }
+
+  // --- 曲選択(出撃準備。DESIGN §1・改修バッチ) ---
+  // 選択中の曲id(不正・未設定ならsong01にフォールバック)
+  function selectedSongId() {
+    const songs = (typeof SONGS !== "undefined") ? SONGS : [];
+    const sid = SAVE.data.selectedSong || "song01";
+    if (songs.some((s) => s.id === sid)) return sid;
+    return songs.length ? songs[0].id : sid;
+  }
+
+  function renderSongSlots() {
+    if (!el.songSlots) return;
+    el.songSlots.innerHTML = "";
+    const songs = (typeof SONGS !== "undefined") ? SONGS : [];
+    const curId = selectedSongId();
+    for (const song of songs) {
+      const div = document.createElement("div");
+      const selected = song.id === curId;
+      div.className = "song-slot" + (selected ? " selected" : "");
+      div.innerHTML =
+        `<div class="song-name">${song.title}</div>` +
+        `<div class="song-bpm">BPM ${song.bpm}</div>`;
+      tap(div, () => onTapSong(song));
+      el.songSlots.appendChild(div);
+    }
+  }
+
+  function onTapSong(song) {
+    if (SAVE.data.selectedSong === song.id) return;
+    SAVE.data.selectedSong = song.id;
+    SAVE.save();
+    renderSongSlots();
+    ensureSelectedSongLoaded();
+  }
+
+  // 選択中の曲をConductorへ先行ロードする。ロード完了まで「いざ!」を無効化する。
+  // Conductor側で曲バッファはid単位にキャッシュされるため、選択済みの曲へ戻ってきた場合は即時完了する。
+  function ensureSelectedSongLoaded() {
+    const songs = (typeof SONGS !== "undefined") ? SONGS : [];
+    if (!songs.length) { setLaunchLoading(false); return; }
+    const sid = selectedSongId();
+    const song = songs.find((s) => s.id === sid) || songs[0];
+    if (typeof Conductor === "undefined" || !Conductor.loadSong) { setLaunchLoading(false); return; }
+    if (Conductor.currentSong && Conductor.currentSong.id === song.id && Conductor.songLoaded) {
+      setLaunchLoading(false);
+      return;
+    }
+    const myToken = ++songLoadToken;
+    setLaunchLoading(true);
+    Conductor.loadSong(song).then(() => {
+      if (myToken !== songLoadToken) return; // 選択が変わった後の古い結果は無視
+      setLaunchLoading(false);
+    });
+  }
+
+  // 「いざ!」の読み込み中表示の切り替え
+  function setLaunchLoading(loading) {
+    if (!el.btnLaunch) return;
+    el.btnLaunch.disabled = loading;
+    el.btnLaunch.textContent = loading ? "読み込み中…" : "いざ!";
   }
 
   // --- 章・ステージ選択(DESIGN §10・Step8) ---
@@ -205,6 +277,7 @@ const Home = (() => {
       const name = CONFIG.CHAPTERS[c - 1] ? CONFIG.CHAPTERS[c - 1].name : ("第" + c + "章");
       div.textContent = unlocked ? (c + "章 " + name) : ("🔒 " + c + "章");
       if (unlocked) tap(div, () => onTapChapter(c));
+      else tap(div, () => {}, "error"); // ロック中の章タップ:ブブー音のみ
       el.chapterTabs.appendChild(div);
     }
   }
@@ -238,6 +311,7 @@ const Home = (() => {
       else label = cleared ? (st + " ✓") : String(st);
       div.textContent = label;
       if (selectable) tap(div, () => onTapStage(c, st));
+      else tap(div, () => {}, "error"); // ロック中のステージタップ:ブブー音のみ
       el.stageButtons.appendChild(div);
     }
   }
@@ -266,7 +340,7 @@ const Home = (() => {
           `<div class="char-name">???</div>` +
           `<div class="char-price">💰${def.price}</div>`;
       }
-      tap(div, () => onTapChar(id, unlocked, def));
+      tap(div, () => onTapChar(id, unlocked, def), () => (!unlocked && SAVE.data.coins < def.price) ? "error" : "select");
       el.charSlots.appendChild(div);
     }
   }
@@ -346,7 +420,7 @@ const Home = (() => {
       Equip.refresh();
       closeModal("screen-equip-picker");
       renderReady();
-    });
+    }, "confirm");
     el.equipPickerList.appendChild(noneRow);
 
     // 所持している当該部位の装備
@@ -365,7 +439,7 @@ const Home = (() => {
         Equip.refresh();
         closeModal("screen-equip-picker");
         renderReady();
-      });
+      }, "confirm");
       el.equipPickerList.appendChild(row);
     }
 
@@ -413,7 +487,7 @@ const Home = (() => {
         rightHtml;
       if (!owned) {
         const buyBtn = row.querySelector(".buy-btn");
-        tap(buyBtn, () => { if (!buyBtn.disabled) buyItem(item); });
+        tap(buyBtn, () => { if (!buyBtn.disabled) buyItem(item); }, () => buyBtn.disabled ? "error" : "buy");
       }
       el.shopList.appendChild(row);
     }

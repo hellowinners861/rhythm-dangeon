@@ -31,6 +31,10 @@ const Player = (() => {
   let boostUntilBeat = -1e9; // ブーストアイテムの効果終了拍(拾得アイテム・DESIGN §8・Step7)
   let boostTrail = [];       // ブースト中の残像演出用の直近描画位置履歴(演出のみ)
 
+  // 2段ジャンプ(改修バッチ)。着地時に0へリセット。CONFIG.PHYSICS.AIR_JUMPS回まで空中ジャンプ可能。
+  let airJumpsUsed = 0;
+  let airPoof = null; // 空中ジャンプの足元エフェクト(演出のみ){x,y,t,dur}
+
   // game.js から毎入力時に渡される戦闘コンテキスト(PlayerからGameは参照しない)
   let combatCtx = { combo: 0, fever: false };
 
@@ -113,6 +117,8 @@ const Player = (() => {
     hurtCount = 0;
     boostUntilBeat = -1e9;
     boostTrail = [];
+    airJumpsUsed = 0;
+    airPoof = null;
 
     tx = level.startX;
     ty = level.startY;
@@ -172,7 +178,12 @@ const Player = (() => {
       SFX.dash(); // 判定成立時のみ呼ばれる(actは成立拍でのみgameから呼ばれる)
       return [];
     }
-    if (type === "jump") { doJump(); SFX.jump(); return []; }
+    if (type === "jump") {
+      const wasAirborne = airborne(); // 空中ジャンプ(2段ジャンプ)かどうかで効果音のピッチを変える
+      doJump();
+      SFX.jump(wasAirborne);
+      return [];
+    }
     return [];
   }
 
@@ -266,21 +277,47 @@ const Player = (() => {
     maybeTouch(d);
   }
 
+  // 通常ジャンプ(接地時)+空中ジャンプ(2段ジャンプ・改修バッチ)。
+  // 空中ジャンプはCONFIG.PHYSICS.AIR_JUMPS回まで(jump上昇中/fall中いずれからも可)。
+  // 基点は「現在の描画位置に最も近いタイル行」(fall中は tx,ty が更新されないため y を使う)。
   function doJump() {
-    if (airborne()) return; // 接地時のみ
     const stats = getStats();
     const riseTiles = P().JUMP_RISE_TILES + stats.jumpPlus; // うさぎの靴/韋駄天足袋
-    // 頭上の空きぶんだけ上昇(天井があれば手前まで)
+
+    if (!airborne()) {
+      // 接地時:従来どおりのジャンプ。空中ジャンプ回数をリセット。
+      let rise = riseTiles;
+      for (let i = 1; i <= riseTiles; i++) {
+        if (solid(tx, ty - i)) { rise = i - 1; break; }
+      }
+      const peak = ty - rise;
+      ty = peak; // 真実のタイルは即上昇(描画はイーズで追従)
+      jump.from = y; jump.peak = peak; jump.t = 0;
+      jump.dur = Math.max(0.001, beatsToSec(P().JUMP_RISE_BEATS));
+      xt.active = false;
+      state = "jump";
+      airJumpsUsed = 0;
+      maybeTouch(0);
+      return;
+    }
+
+    // 空中(jump上昇中 or fall中):空中ジャンプ。回数切れなら不発(成立扱いだが何も起きない)。
+    const maxAirJumps = P().AIR_JUMPS || 0;
+    if (airJumpsUsed >= maxAirJumps) return;
+    airJumpsUsed++;
+
+    const baseRow = Math.round(y); // 現在の描画位置に最も近いタイル行を基点にする
     let rise = riseTiles;
     for (let i = 1; i <= riseTiles; i++) {
-      if (solid(tx, ty - i)) { rise = i - 1; break; }
+      if (solid(tx, baseRow - i)) { rise = i - 1; break; }
     }
-    const peak = ty - rise;
-    ty = peak; // 真実のタイルは即上昇(描画はイーズで追従)
+    const peak = baseRow - rise;
+    ty = peak; // fallを打ち切ってjumpへ(着地予定はstartFallが頂点到達時に再計算する)
     jump.from = y; jump.peak = peak; jump.t = 0;
     jump.dur = Math.max(0.001, beatsToSec(P().JUMP_RISE_BEATS));
     xt.active = false;
     state = "jump";
+    airPoof = { x, y, t: 0, dur: 0.35 }; // 足元に雲エフェクト(演出のみ)
     maybeTouch(0);
   }
 
@@ -481,11 +518,18 @@ const Player = (() => {
         y = landY; ty = landY; x = tx;
         vy = 0;
         state = "idle";
+        airJumpsUsed = 0; // 着地で空中ジャンプ回数リセット
       }
     } else {
       // idle:描画座標を真実に保つ
       if (!xt.active) x = tx;
       y = ty;
+    }
+
+    // 空中ジャンプの足元エフェクト(演出のみ・時間経過で消える)
+    if (airPoof) {
+      airPoof.t += dt;
+      if (airPoof.t >= airPoof.dur) airPoof = null;
     }
 
     // ブースト中の残像演出(描画専用。直近数フレームぶんの位置を保持しフェード表示する)
@@ -545,6 +589,20 @@ const Player = (() => {
         g.arc(tcx, tcy, r * 0.85, 0, Math.PI * 2);
         g.fill();
       }
+      g.globalAlpha = 1;
+    }
+
+    // 空中ジャンプの足元エフェクト(演出のみ。円が広がって消える。改修バッチ)
+    if (airPoof) {
+      const pcx = (airPoof.x - cam.x) * TILE + VW / 2;
+      const pcy = (airPoof.y - cam.y) * TILE + VH / 2 + r * 0.9;
+      const pt = Math.min(1, airPoof.t / airPoof.dur);
+      g.globalAlpha = 1 - pt;
+      g.strokeStyle = "#ffffff";
+      g.lineWidth = 3;
+      g.beginPath();
+      g.arc(pcx, pcy, TILE * (0.18 + pt * 0.3), 0, Math.PI * 2);
+      g.stroke();
       g.globalAlpha = 1;
     }
 

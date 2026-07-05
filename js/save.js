@@ -33,6 +33,7 @@ const SAVE = (() => {
       volumes: { bgm: 0.8, se: 0.8 }, // 音量(0..1)
       records: {},                // 曲別ハイスコア等(将来用)
       progress: defaultProgress(),// 章・ステージ進行(Step8)
+      selectedSong: "song01",     // 出撃準備で選択中の曲id(未設定・不正時はsong01にフォールバック)
     };
   }
 

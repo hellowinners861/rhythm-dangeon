@@ -105,13 +105,14 @@ const SFX = (() => {
   }
 
   // ジャンプ音。短い上昇スイープ(判定成立時のみ呼ばれる。player.js)
-  function jump() {
+  // high=true で空中ジャンプ(2段ジャンプ)用に少し高いピッチにする(改修バッチ・Step9)
+  function jump(high) {
     const now = ctx.currentTime;
     const o = ctx.createOscillator();
     const g = ctx.createGain();
     o.type = "sine";
-    o.frequency.setValueAtTime(440, now);
-    o.frequency.exponentialRampToValueAtTime(880, now + 0.12);
+    o.frequency.setValueAtTime(high ? 660 : 440, now);
+    o.frequency.exponentialRampToValueAtTime(high ? 1320 : 880, now + 0.12);
     g.gain.setValueAtTime(0.0001, now);
     g.gain.exponentialRampToValueAtTime(0.28, now + 0.015);
     g.gain.exponentialRampToValueAtTime(0.0001, now + 0.14);
@@ -261,19 +262,65 @@ const SFX = (() => {
     });
   }
 
-  // メニュータップ音。短く軽いクリック(judge/coinとは別音色)
-  function ui() {
-    const now = ctx.currentTime;
+  // メニュー用の単音ヘルパ(startOffset秒後にfreqを鳴らす)。ui()の各kindで使い回す。
+  function uiTone(startOffset, freq, dur, peak, type) {
+    const st = ctx.currentTime + startOffset;
     const o = ctx.createOscillator();
     const g = ctx.createGain();
-    o.type = "sine";
-    o.frequency.value = 720;
-    g.gain.setValueAtTime(0.0001, now);
-    g.gain.exponentialRampToValueAtTime(0.18, now + 0.006);
-    g.gain.exponentialRampToValueAtTime(0.0001, now + 0.07);
+    o.type = type || "sine";
+    o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, st);
+    g.gain.exponentialRampToValueAtTime(peak, st + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001, st + dur);
     o.connect(g).connect(seGain);
-    o.start(now);
-    o.stop(now + 0.08);
+    o.start(st);
+    o.stop(st + dur + 0.02);
+  }
+
+  // メニュータップ音(judge/coinとは別音色)。kindでボタンの種類ごとに音色を変える(改修バッチ・Step9)。
+  // 引数なし("select"扱い)は既存の軽いクリックのまま(後方互換)。
+  //   "select"  … 項目選択(キャラ・装備・曲・タブ切替)
+  //   "confirm" … 決定(モード選択・装備決定・購入確認OKなど)
+  //   "back"    … 戻る/閉じる
+  //   "launch"  … 「いざ!」専用ファンファーレ
+  //   "buy"     … ショップ購入成立
+  //   "error"   … 購入失敗・ロック項目タップ
+  function ui(kind) {
+    const now = ctx.currentTime;
+    if (kind === "confirm") {
+      // 明るい2音(決定)
+      uiTone(0, 740, 0.09, 0.22, "triangle");
+      uiTone(0.05, 1108.7, 0.12, 0.24, "triangle");
+    } else if (kind === "back") {
+      // 下降音(戻る/閉じる)
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = "sine";
+      o.frequency.setValueAtTime(640, now);
+      o.frequency.exponentialRampToValueAtTime(320, now + 0.1);
+      g.gain.setValueAtTime(0.0001, now);
+      g.gain.exponentialRampToValueAtTime(0.2, now + 0.006);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
+      o.connect(g).connect(seGain);
+      o.start(now);
+      o.stop(now + 0.14);
+    } else if (kind === "launch") {
+      // 短いファンファーレ(3音上昇)
+      uiTone(0,    523.25, 0.1,  0.22, "triangle");
+      uiTone(0.08, 659.25, 0.1,  0.24, "triangle");
+      uiTone(0.16, 987.77, 0.22, 0.28, "triangle");
+    } else if (kind === "buy") {
+      // レジ風チャリン(coin()とは別音色。2音の金属的なベル)
+      uiTone(0,    1760, 0.16, 0.22, "square");
+      uiTone(0.03, 2637, 0.2,  0.18, "square");
+    } else if (kind === "error") {
+      // ブブー(短い低音2連)
+      uiTone(0,    150, 0.09, 0.24, "sawtooth");
+      uiTone(0.11, 150, 0.09, 0.24, "sawtooth");
+    } else {
+      // "select" / 引数なし(既存の軽いクリック。後方互換)
+      uiTone(0, 720, 0.07, 0.18, "sine");
+    }
   }
 
   // 音量設定(0..1)。bgm/se いずれか未指定なら据え置き。
