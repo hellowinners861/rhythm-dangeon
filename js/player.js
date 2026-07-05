@@ -28,6 +28,8 @@ const Player = (() => {
   let invulnUntilBeat = 0;   // この拍まで無敵(拍基準)
   let reloadUntilBeat = 0;   // ガンナー:この拍までビーム不可
   let hurtCount = 0;         // 被弾成立の累計(ゲーム側が演出検出に使う)
+  let boostUntilBeat = -1e9; // ブーストアイテムの効果終了拍(拾得アイテム・DESIGN §8・Step7)
+  let boostTrail = [];       // ブースト中の残像演出用の直近描画位置履歴(演出のみ)
 
   // game.js から毎入力時に渡される戦闘コンテキスト(PlayerからGameは参照しない)
   let combatCtx = { combo: 0, fever: false };
@@ -97,6 +99,8 @@ const Player = (() => {
     invulnUntilBeat = 0;
     reloadUntilBeat = -1e9; // 開始前(負の拍)でもビームを撃てるように十分過去にしておく
     hurtCount = 0;
+    boostUntilBeat = -1e9;
+    boostTrail = [];
 
     tx = level.startX;
     ty = level.startY;
@@ -172,12 +176,34 @@ const Player = (() => {
     hp = Math.min(maxHp, hp + amount);
   }
 
+  // シールド拾得アイテム。CONFIG.ITEMS.SHIELD_MAX を上限にクランプする(DESIGN §8・Step7)。
+  function addShield(n) {
+    const max = (typeof CONFIG !== "undefined" && CONFIG.ITEMS) ? CONFIG.ITEMS.SHIELD_MAX : 2;
+    shield = Math.min(max, shield + n);
+  }
+
+  // ブースト拾得アイテム。現在拍から beats 拍のあいだ移動距離2倍(羽の靴と重複しても最大値採用)。
+  function setBoost(beats) {
+    boostUntilBeat = curBeat() + beats;
+  }
+
+  // ブースト効果が有効か(1拍あたりの移動距離2倍)
+  function isBoosted() {
+    return (Conductor && Conductor.running) && curBeat() < boostUntilBeat;
+  }
+
+  // HUD表示用の残り拍数(効果なしなら0)
+  function boostRemaining() {
+    if (!isBoosted()) return 0;
+    return Math.max(0, boostUntilBeat - curBeat());
+  }
+
   // 接地時の前進ダッシュ(段差の自動駆け上がり/降りを含む)。
-  // 羽の靴(moveDist:2)なら1拍で前方2タイル進む。段差処理・停止判定は1タイル目のみで行い、
-  // 1タイル目で壁に当たればそこで停止する(2タイル目の駆け上がりは試みない)。
+  // 羽の靴(moveDist:2)またはブースト拾得アイテム中なら1拍で前方2タイル進む(重複しても最大値採用)。
+  // 段差処理・停止判定は1タイル目のみで行い、1タイル目で壁に当たればそこで停止する(2タイル目の駆け上がりは試みない)。
   function groundMove(d) {
     const stats = getStats();
-    const dist = stats.moveDist >= 2 ? 2 : 1;
+    const dist = (stats.moveDist >= 2 || isBoosted()) ? 2 : 1;
     const moveSec = beatsToSec(P().MOVE_TWEEN_BEATS);
     const ntx = tx + d;
     const frontSolid = solid(ntx, ty);       // 進行先の体の高さ
@@ -443,6 +469,14 @@ const Player = (() => {
       if (!xt.active) x = tx;
       y = ty;
     }
+
+    // ブースト中の残像演出(描画専用。直近数フレームぶんの位置を保持しフェード表示する)
+    if (isBoosted()) {
+      boostTrail.push({ x, y });
+      if (boostTrail.length > 5) boostTrail.shift();
+    } else if (boostTrail.length) {
+      boostTrail.length = 0;
+    }
   }
 
   // --- 描画(cam.x, cam.y はタイル単位で画面中央に映すワールド座標) ---
@@ -478,6 +512,21 @@ const Player = (() => {
       g.moveTo(cx + attack.dir * r, cy);
       g.lineTo(ex + attack.dir * TILE * 0.5, cy);
       g.stroke();
+      g.globalAlpha = 1;
+    }
+
+    // ブースト中の残像(古い位置ほど薄く・体より先に描く)
+    if (boostTrail.length > 1) {
+      for (let i = 0; i < boostTrail.length - 1; i++) {
+        const tp = boostTrail[i];
+        const tcx = (tp.x - cam.x) * TILE + VW / 2;
+        const tcy = (tp.y - cam.y) * TILE + VH / 2;
+        g.globalAlpha = ((i + 1) / boostTrail.length) * 0.3;
+        g.fillStyle = char.color;
+        g.beginPath();
+        g.arc(tcx, tcy, r * 0.85, 0, Math.PI * 2);
+        g.fill();
+      }
       g.globalAlpha = 1;
     }
 
@@ -574,7 +623,7 @@ const Player = (() => {
 
   return {
     init, act, update, draw, pos, hurt, isInvulnerable, _debugSetTile,
-    setCombatContext, heal,
+    setCombatContext, heal, addShield, setBoost, isBoosted, boostRemaining,
     get hp() { return hp; },
     get maxHp() { return maxHp; },
     get shield() { return shield; },

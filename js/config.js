@@ -61,16 +61,42 @@ const CONFIG = {
     HITSTOP_MS: 40,       // 敵撃破時のヒットストップ(rAF側演出・拍計算に不使用)
   },
 
-  // ザコ敵・基本6種(DESIGN §7)。interval=行動周期(拍)、dmg=接触/攻撃ダメージ。
-  // 色・形パラメータも各敵に持たせる(データ駆動)。
+  // ザコ敵・基本6種+色違い6種(DESIGN §7)。interval=行動周期(拍)、dmg=接触/攻撃ダメージ。
+  // 色・形パラメータも各敵に持たせる(データ駆動)。coinDrop=撃破時のコイン枚数(フィーバー中は2倍)。
+  // 色違いは base に元種のキーを持ち、行動エンジン(ai)は元種と共通のものを流用する(Step7)。
   ENEMIES: {
-    slime:  { name: "スライム",   hp: 1, dmg: 1, interval: 2, ai: "patrol",  color: "#7fd36b" },
-    bat:    { name: "バット",     hp: 1, dmg: 1, interval: 1, ai: "chase",   fly: true, color: "#a98fe0", vision: 8 },
-    knight: { name: "ナイト",     hp: 2, dmg: 1, interval: 2, ai: "knight",  color: "#c3c9dc" },
-    gunner: { name: "ガンナー敵", hp: 1, dmg: 1, interval: 4, ai: "shooter", color: "#e0a56b", bulletSpeed: 1 },
-    ghost:  { name: "ゴースト",   hp: 1, dmg: 1, interval: 2, ai: "ghost",   fly: true, color: "#cfe3ff", vision: 12 },
-    bomber: { name: "ボマー",     hp: 2, dmg: 1, interval: 3, ai: "bomber",  color: "#e07f97", bombFuse: 2 },
+    slime:  { name: "スライム",   hp: 1, dmg: 1, interval: 2, ai: "patrol",  color: "#7fd36b", coinDrop: 1 },
+    bat:    { name: "バット",     hp: 1, dmg: 1, interval: 1, ai: "chase",   fly: true, color: "#a98fe0", vision: 8, coinDrop: 1 },
+    knight: { name: "ナイト",     hp: 2, dmg: 1, interval: 2, ai: "knight",  color: "#c3c9dc", coinDrop: 1 },
+    gunner: { name: "ガンナー敵", hp: 1, dmg: 1, interval: 4, ai: "shooter", color: "#e0a56b", bulletSpeed: 1, coinDrop: 1 },
+    ghost:  { name: "ゴースト",   hp: 1, dmg: 1, interval: 2, ai: "ghost",   fly: true, color: "#cfe3ff", vision: 12, coinDrop: 1 },
+    bomber: { name: "ボマー",     hp: 2, dmg: 1, interval: 3, ai: "bomber",  color: "#e07f97", bombFuse: 2, bombMax: 1, coinDrop: 1 },
+
+    // --- 色違い6種(DESIGN §7・強化版)。base=元種キー。enemies.js側のAI関数へ渡すフラグのみ最小追加。
+    redslime:    { name: "レッドスライム", base: "slime",  hp: 2, dmg: 1, interval: 1, ai: "patrol",  color: "#e0473f", coinDrop: 2 },
+    goldbat:     { name: "ゴールドバット", base: "bat",    hp: 1, dmg: 1, interval: 1, ai: "chase", flee: true, fly: true, color: "#ffd54a", vision: 8, coinDrop: 10 },
+    blackknight: { name: "ブラックナイト", base: "knight", hp: 4, dmg: 2, interval: 2, ai: "knight",  color: "#1c1c22", coinDrop: 2 },
+    sniper:      { name: "スナイパー",     base: "gunner", hp: 1, dmg: 1, interval: 2, ai: "shooter", color: "#3f6fe0", bulletSpeed: 2, coinDrop: 2 },
+    wraith:      { name: "怨霊",           base: "ghost",  hp: 1, dmg: 1, interval: 2, ai: "ghost",   fly: true, color: "rgba(224,90,90,0.72)", vision: 12, coinDrop: 2 },
+    deathbomber: { name: "デスボマー",     base: "bomber", hp: 2, dmg: 1, interval: 3, ai: "bomber",  color: "#16161a", bombFuse: 2, bombMax: 2, bombShape: "square", coinDrop: 2 },
   },
+
+  // 拾得アイテム(DESIGN §8)。レベルの'I'マーカーをこの確率(合計1)で抽選し実体化する。
+  ITEMS: {
+    HEAL_AMOUNT: 1,      // ハート:HP回復量
+    SHIELD_ADD: 1,        // シールド:付与量
+    SHIELD_MAX: 2,        // シールドの上限
+    BOOST_BEATS: 16,       // ブースト:効果持続(拍)
+    DROP_RATES: { heart: 0.4, shield: 0.3, boost: 0.3 },
+  },
+
+  // 章テーマ(DESIGN §10)。見た目(背景・タイル色)と難度係数。進行システム自体はStep8。
+  // variantRate=敵スポーン時に色違いへ差し替える確率 / densityMul=スポーン候補の採用率係数(Step7時点では要確認§7参照)。
+  CHAPTERS: [
+    { id: 1, name: "静寂の森",        bg: ["#05060a", "#12331f"], tile: "#2a4d3a", tileTop: "#3f7050", variantRate: 0.15, densityMul: 1.0 },
+    { id: 2, name: "ノイズの機械都市", bg: ["#0a0a12", "#33251a"], tile: "#4d3a2a", tileTop: "#705a3f", variantRate: 0.30, densityMul: 1.15 },
+    { id: 3, name: "音喰らいの城",    bg: ["#0a0512", "#2a1233"], tile: "#3a2a4d", tileTop: "#5a3f70", variantRate: 0.50, densityMul: 1.3 },
+  ],
 
   // 経済(DESIGN §9/§11)。ゲームオーバー時に持ち帰るコインの割合(端数切り捨て)。
   ECONOMY: { GAMEOVER_COIN_RATE: 0.5 },
@@ -129,6 +155,5 @@ const CONFIG = {
   },
 
   // --- 以降のステップで追記予定 ---
-  // BOSSES: {...},       // ボス3種
-  // ITEMS: {...},        // 拾得アイテム(ハート/シールド/ブースト。コインはStep6で実装)
+  // BOSSES: {...},       // ボス3種(Step8)
 };

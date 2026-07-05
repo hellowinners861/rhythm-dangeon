@@ -15,6 +15,12 @@ const Game = (() => {
   let selectedChar = urlChar || "rat";
   function effectiveChar() { return urlChar || selectedChar; }
 
+  // 章テーマ(DESIGN §10・Step7)。?chapter=1|2|3 でデバッグ切替(0始まりindexへ変換)。
+  // 進行システム(章クリアで解放等)はStep8で実装するため、現状はURLでの固定切替のみ。
+  const urlChapter = (location.search.match(/[?&]chapter=([123])\b/) || [])[1];
+  let currentChapter = urlChapter ? (parseInt(urlChapter, 10) - 1) : 0;
+  function chapterTheme() { return CONFIG.CHAPTERS[currentChapter] || CONFIG.CHAPTERS[0]; }
+
   let canvas, g;
   let scene = "title";
 
@@ -196,9 +202,11 @@ const Game = (() => {
     const tb = Conductor.totalBeats || CONFIG.STAGE.TEST_BEATS;
     level = LevelGen.generate({ totalBeats: tb, seed: curSeed });
     Player.init(level, effectiveChar());
-    // 敵の実体化:抽選・位相は seed 由来の乱数(リトライ再現性)
-    Enemies.init(level, LevelGen.rng((curSeed ^ 0x9e3779b9) >>> 0));
-    if (typeof Items !== "undefined") Items.init(level);
+    const theme = chapterTheme();
+    // 敵の実体化:抽選・位相は seed 由来の乱数(リトライ再現性)。variantRateは章テーマ由来(色違い抽選)
+    Enemies.init(level, LevelGen.rng((curSeed ^ 0x9e3779b9) >>> 0), theme.variantRate);
+    // 拾得アイテム(ハート/シールド/ブースト)の種別抽選もseed由来の別系統の乱数を使う
+    if (typeof Items !== "undefined") Items.init(level, LevelGen.rng((curSeed ^ 0x517cc1b7) >>> 0));
     const p = Player.pos();
     cam.y = level.h / 2;
     cam.x = clampCamX(p.x);
@@ -477,6 +485,8 @@ const Game = (() => {
     restNow = Conductor.running && Conductor.sectionAt(Conductor.currentBeat()).div === 0;
 
     Player.update(dt);
+    // フィーバー状態をEnemiesへ毎フレーム反映(撃破時のコインドロップ2倍判定用。DESIGN §3・Step7)
+    if (typeof Enemies !== "undefined" && Enemies.setFever) Enemies.setFever(combo >= feverThreshold());
     // 敵の拍駆動AI(拍跨ぎ処理は内部でConductor基準)。ダメージ解決順:
     // プレイヤー行動(攻撃/移動=入力時に即時)→ 敵行動 → 接触、の順で1拍内を処理。
     // 休符中(restNow)は敵・弾・爆弾の行動を止める。
@@ -597,7 +607,8 @@ const Game = (() => {
     }
   }
 
-  // 背景:拍パルスの簡素なグラデーション。fever区間は明るく・暖色に。
+  // 背景:章テーマの2色グラデーションをベースに、拍パルス/feverの発光オーバーレイを重ねる。
+  // DESIGN §10・Step7(章ごとの見た目テーマ)。既存の拍パルス・fever演出は維持する。
   function renderBackground() {
     let beatPulse = 0;
     let fever = false;
@@ -607,23 +618,29 @@ const Game = (() => {
       beatPulse = Math.max(0, 1 - frac * 2); // 拍頭で1→0
       fever = !!Conductor.sectionAt(b).fever;
     }
+    const theme = chapterTheme();
     const grad = g.createLinearGradient(0, 0, 0, VH);
-    if (fever) {
-      // fever区間:暖色・明るめのグラデーション
-      const top = 26 + beatPulse * 24;
-      grad.addColorStop(0, `hsl(300, 55%, ${16 + beatPulse * 8}%)`);
-      grad.addColorStop(1, `hsl(28, 70%, ${top}%)`);
-    } else {
-      const top = 12 + beatPulse * 22;
-      grad.addColorStop(0, `hsl(230, 45%, ${8 + beatPulse * 6}%)`);
-      grad.addColorStop(1, `hsl(250, 40%, ${top}%)`);
-    }
+    grad.addColorStop(0, theme.bg[0]);
+    grad.addColorStop(1, theme.bg[1]);
     g.fillStyle = grad;
     g.fillRect(0, 0, VW, VH);
+    // 拍パルス:画面上部から明るいオーバーレイ(feverは暖色寄りに)
+    if (beatPulse > 0.02) {
+      g.fillStyle = fever
+        ? `rgba(255,170,90,${0.10 + beatPulse * 0.22})`
+        : `rgba(140,170,255,${0.05 + beatPulse * 0.14})`;
+      g.fillRect(0, 0, VW, VH * 0.6);
+    }
+    // fever区間:全体を薄い暖色でオーバーレイ
+    if (fever) {
+      g.fillStyle = `rgba(255,120,40,${0.06 + beatPulse * 0.08})`;
+      g.fillRect(0, 0, VW, VH);
+    }
   }
 
-  // タイルワールド描画(可視範囲のみ)
+  // タイルワールド描画(可視範囲のみ)。ブロック色は章テーマから参照(DESIGN §10・Step7)。
   function renderWorld() {
+    const theme = chapterTheme();
     const cLo = Math.floor(cam.x - VW / (2 * TILE) - 1);
     const cHi = Math.ceil(cam.x + VW / (2 * TILE) + 1);
     for (let row = 0; row < level.h; row++) {
@@ -634,11 +651,11 @@ const Game = (() => {
         const sx = tileScreenX(col);
         const sy = tileScreenY(row);
         // ブロック本体
-        g.fillStyle = "#2b3252";
+        g.fillStyle = theme.tile;
         g.fillRect(sx, sy, TILE, TILE);
         // 上面が空なら明るいハイライト(地表の縁)
         if (!LevelGen.solidAt(level, col, row - 1)) {
-          g.fillStyle = "#4a5688";
+          g.fillStyle = theme.tileTop;
           g.fillRect(sx, sy, TILE, 8);
         }
         // 内側の陰影で立体感
@@ -827,6 +844,15 @@ const Game = (() => {
     g.fillText("💰" + n, ox, oy);
   }
 
+  // ブースト拾得アイテムの残り拍数(HUD左上・コインの下)。DESIGN §8・Step7
+  function drawBoostHUD(ox, oy) {
+    if (!Player.isBoosted || !Player.isBoosted()) return;
+    g.textAlign = "left";
+    g.fillStyle = "#9fe0ff";
+    g.font = "bold 24px sans-serif";
+    g.fillText("👟 残り" + Math.ceil(Player.boostRemaining()) + "拍", ox, oy);
+  }
+
   // 休符区間の演出:画面を少し暗く+中央下に「♪休符♪」。
   function renderRestOverlay() {
     g.fillStyle = "rgba(4,6,16,0.42)";
@@ -863,9 +889,10 @@ const Game = (() => {
   }
 
   function renderHUD() {
-    // 左上:HPハート、その下にコイン所持数
+    // 左上:HPハート、その下にコイン所持数、ブースト中はさらにその下に残り拍数
     drawHearts(24, 34);
     drawCoinsHUD(24, 70);
+    drawBoostHUD(24, 100);
 
     // 右上:コンボ / タップ(小さく常時表示)
     g.textAlign = "right";
@@ -913,6 +940,7 @@ const Game = (() => {
       lines.push(`seed: ${curSeed}`);
       lines.push(`chunkCount: ${level.chunkCount}  goalDist: ${level.goalDist.toFixed(1)}`);
     }
+    lines.push(`chapter: ${currentChapter + 1} ${chapterTheme().name}`);
     lines.push(`char: ${effectiveChar()}  hp: ${Player.hp}/${Player.maxHp}  kills: ${enemiesKilled}`);
     lines.push(`enemies: ${Enemies.count}  bullets: ${Enemies.bulletCount}  bombs: ${Enemies.bombCount}`);
     if (scene === "stage" && level) {
@@ -963,6 +991,7 @@ const Game = (() => {
     get cam() { return cam; },
     get level() { return level; },
     get seed() { return curSeed; },
+    get currentChapter() { return currentChapter; },
     _gotoStage: gotoStage,
     _gotoCalibration: gotoCalibration,
     _gotoModeSelect: gotoModeSelect,
