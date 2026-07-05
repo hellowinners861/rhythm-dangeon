@@ -1,0 +1,154 @@
+/* リズムダンジョン スタイル(スマホ横画面・タッチ専用) */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  /* スクロール・ダブルタップズーム・長押し選択を全面禁止 */
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+  font-family: -apple-system, "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
+  color: #fff;
+}
+
+/* ゲーム画面(1600×900をレターボックスで中央配置) */
+#game {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: #05060a;
+  display: block;
+}
+
+/* ---- 上部シーンUI ---- */
+#topbar {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.ui-btn {
+  font-size: 15px;
+  color: #fff;
+  background: rgba(40, 44, 66, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 8px;
+  padding: 8px 14px;
+  min-height: 40px;
+  cursor: pointer;
+}
+.ui-btn:active {
+  background: rgba(90, 100, 150, 0.9);
+}
+
+#calib-panel {
+  background: rgba(12, 14, 22, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 260px;
+}
+#calib-info {
+  font-size: 14px;
+  line-height: 1.4;
+  color: #cfe;
+}
+.calib-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.calib-row input[type="range"] {
+  flex: 1;
+  touch-action: none;
+}
+#calib-value {
+  min-width: 52px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.calib-btns {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ---- 下部タッチ操作 ---- */
+#controls {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  display: flex;
+  justify-content: space-between;
+  padding: 0 18px 18px;
+  pointer-events: none; /* 子ボタンだけ受ける */
+}
+.pad {
+  display: flex;
+  gap: 14px;
+  pointer-events: auto;
+}
+
+.act-btn {
+  width: 76px;
+  height: 76px;
+  min-width: 72px;
+  min-height: 72px;
+  font-size: 30px;
+  color: #fff;
+  background: rgba(60, 66, 96, 0.5);
+  border: 2px solid rgba(255, 255, 255, 0.32);
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+/* 押下フィードバック */
+.act-btn:active {
+  background: rgba(150, 170, 240, 0.85);
+  border-color: #fff;
+  transform: scale(0.94);
+}
+
+/* ---- 縦持ち警告 ---- */
+#rotate-guard {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: #05060a;
+  color: #fff;
+  font-size: 24px;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+@media (orientation: portrait) {
+  #rotate-guard { display: flex; }
+}
+
+.hidden { display: none !important; }
