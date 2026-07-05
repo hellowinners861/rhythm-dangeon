@@ -43,6 +43,10 @@ const CONFIG = {
     ADVANCE_RATE: 0.45,   // フルコンボ時の1拍あたり平均前進タイル数(ゴール距離=総拍数×これ)
     TEST_BEATS: 120,      // Step5まで: メトロノーム時の仮想「曲の総拍数」
     BORDER_GROUND_Y: 8,   // チャンク境界の床の行(接続保証用)
+    // E/C/I マーカーの基礎採用率。章の densityMul を乗じて(上限1)シード抽選する(DESIGN §6・Step8)。
+    SPAWN_RATE: { E: 0.8, C: 0.9, I: 0.7 },
+    BOSS_RATE: 0.5,       // ボスステージの通常区間の長さ倍率(曲の約0.5周分。DESIGN §10)
+    ARENA_W: 24,          // ボスアリーナ幅(タイル)
   },
 
   // プレイアブルキャラ(DESIGN §5)。type=攻撃方式。色は描画プレースホルダ。
@@ -154,6 +158,12 @@ const CONFIG = {
     ],
   },
 
-  // --- 以降のステップで追記予定 ---
-  // BOSSES: {...},       // ボス3種(Step8)
+  // ボス3種(章ごとに固定・DESIGN §7/§10・Step8)。
+  // hp=「残り曲周回数×想定ヒットレート」の概算(バランスはStep9)。dmg=攻撃/接触ダメージ。
+  // coinBonus=撃破ボーナスコイン。詳細な攻撃パターン(拍数・弾速・召喚数・サイズ)は js/boss.js の DATA に集約。
+  BOSSES: {
+    silencer:    { name: "オオコウモリ サイレンサー",     hp: 80,  dmg: 1, coinBonus: 100 },
+    beatcrusher: { name: "鋼鉄ゴーレム ビートクラッシャー", hp: 200, dmg: 1, coinBonus: 300 },
+    mutos:       { name: "音喰らい ミュートス",           hp: 400, dmg: 2, coinBonus: 1000 },
+  },
 };

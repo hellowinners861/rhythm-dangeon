@@ -4,7 +4,23 @@
 
 const SAVE = (() => {
   const KEY = "rhythm-dungeon-save";
-  const VERSION = 2;
+  const VERSION = 3;
+
+  // 章進行の初期値(DESIGN §10・Step8)。
+  //   unlockedChapter … 解放済みの最新章(1..3)。これ未満の章は全ステージ解放済み。
+  //   unlockedStage   … unlockedChapter 内で解放済みの最新ステージ(1..5)。
+  //   clearedBoss     … 各章ボス撃破フラグ(index0=1章)。
+  //   seenOpening     … オープニング演出を見たか。
+  //   seenChapterIntro… 各章の章開始演出を見たか(index0=1章)。
+  function defaultProgress() {
+    return {
+      unlockedChapter: 1,
+      unlockedStage: 1,
+      clearedBoss: [false, false, false],
+      seenOpening: false,
+      seenChapterIntro: [false, false, false],
+    };
+  }
 
   function defaults() {
     return {
@@ -16,25 +32,48 @@ const SAVE = (() => {
       equipment: { head: null, body: null, feet: null, weapon: null }, // 現在の装備
       volumes: { bgm: 0.8, se: 0.8 }, // 音量(0..1)
       records: {},                // 曲別ハイスコア等(将来用)
+      progress: defaultProgress(),// 章・ステージ進行(Step8)
     };
   }
 
   let data = defaults();
 
-  // 旧バージョンからの移行。v1(calibrationMsのみ)からv2(コイン・装備等)へ引き継ぐ。
+  // 進行データを既定値で補完(欠損・不正な配列長を安全化する)。
+  function fixProgress(p) {
+    const d = defaultProgress();
+    if (!p || typeof p !== "object") return d;
+    if (typeof p.unlockedChapter === "number") d.unlockedChapter = Math.max(1, Math.min(3, p.unlockedChapter));
+    if (typeof p.unlockedStage === "number") d.unlockedStage = Math.max(1, Math.min(5, p.unlockedStage));
+    if (Array.isArray(p.clearedBoss)) for (let i = 0; i < 3; i++) d.clearedBoss[i] = !!p.clearedBoss[i];
+    d.seenOpening = !!p.seenOpening;
+    if (Array.isArray(p.seenChapterIntro)) for (let i = 0; i < 3; i++) d.seenChapterIntro[i] = !!p.seenChapterIntro[i];
+    return d;
+  }
+
+  // 旧バージョンからの移行。v1(calibrationMsのみ)/v2(コイン・装備等)から引き継ぐ。
   function migrate(obj) {
     if (!obj || typeof obj !== "object") return defaults();
     if (obj.version !== VERSION) {
       // バージョン差異時はデフォルトに既知フィールドをマージして作り直す
       const d = defaults();
       if (typeof obj.calibrationMs === "number") d.calibrationMs = obj.calibrationMs;
+      // v2→v3: コイン・装備・キャラ解放は引き継ぐ(章進行は初期化)
+      if (obj.version === 2) {
+        if (typeof obj.coins === "number") d.coins = obj.coins;
+        if (Array.isArray(obj.unlockedChars)) d.unlockedChars = obj.unlockedChars.slice();
+        if (Array.isArray(obj.ownedEquip)) d.ownedEquip = obj.ownedEquip.slice();
+        d.equipment = Object.assign(defaults().equipment, obj.equipment || {});
+        d.volumes = Object.assign(defaults().volumes, obj.volumes || {});
+        d.records = obj.records || {};
+      }
       return d;
     }
-    // 欠損フィールドをデフォルトで補完(浅いマージ + equipment/volumesはネストも補完)
+    // 欠損フィールドをデフォルトで補完(浅いマージ + ネストも補完)
     const d = Object.assign(defaults(), obj);
     d.equipment = Object.assign(defaults().equipment, obj.equipment || {});
     d.volumes = Object.assign(defaults().volumes, obj.volumes || {});
     d.records = obj.records || {};
+    d.progress = fixProgress(obj.progress);
     return d;
   }
 

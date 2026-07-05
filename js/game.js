@@ -21,6 +21,10 @@ const Game = (() => {
   let currentChapter = urlChapter ? (parseInt(urlChapter, 10) - 1) : 0;
   function chapterTheme() { return CONFIG.CHAPTERS[currentChapter] || CONFIG.CHAPTERS[0]; }
 
+  // 出撃準備での章・ステージ選択(1始まり)。init で進行データから初期化する。DESIGN §10・Step8
+  let selChapter = 1;
+  let selStage = 1;
+
   let canvas, g;
   let scene = "title";
 
@@ -39,6 +43,14 @@ const Game = (() => {
   let missFlash = 0;      // ミス/被弾演出の残り秒
   let songClear = false;  // 曲が終わる前にゴールしたか(リザルトのボーナス表示)
   let restNow = false;    // 現在が休符区間(div=0)か(描画・敵停止に使う)
+
+  // ボスステージ状態(Step8)
+  let bossStage = false;         // このステージがボスステージ(章の5面)か
+  let bossTriggered = false;     // アリーナ進入でボス戦を開始したか
+  let bossDefeatedHandled = false; // 撃破後のクリア処理を済ませたか
+  let bossClear = false;         // 直近のリザルトがボスクリアか(表示・ボーナス用)
+  let bossClearChapter = 0;      // 撃破したボスの章(1始まり。撃破後ストーリー用)
+  let bossRestActive = false;    // ミュートスの強制休符が有効か(入力遮断・レーン暗転)
 
   // 楽曲ロード状態(タイトルの「読み込み中…」→「タップして開始」切替に使う)
   let songReady = (typeof SONGS === "undefined" || SONGS.length === 0);
@@ -64,6 +76,9 @@ const Game = (() => {
   let fps = 0;
   let lastFrameT = 0;
 
+  // ストーリー(章間テキスト演出。DOMパネル。DESIGN §10・Step8)
+  const story = { pages: [], idx: 0, onDone: null, active: false };
+
   // DOM参照
   let el = {};
 
@@ -81,8 +96,13 @@ const Game = (() => {
     el.btnRetry = document.getElementById("btn-retry");
     el.btnBack = document.getElementById("btn-back");
     el.controls = document.getElementById("controls");
+    el.storyPanel = document.getElementById("story-panel");
+    el.storyText = document.getElementById("story-text");
 
     SAVE.load();
+    // 章・ステージ選択の初期値を進行データから復元(最新の解放位置)
+    selChapter = SAVE.data.progress.unlockedChapter;
+    selStage = SAVE.data.progress.unlockedStage;
     // 保存済み較正値をConductorへ反映
     Conductor.previewCalibration(SAVE.data.calibrationMs);
     // 保存済み音量をSFXへ反映
@@ -107,11 +127,21 @@ const Game = (() => {
       "pointerdown",
       (e) => {
         e.preventDefault();
+        if (story.active) return; // ストーリー表示中はゲーム側のタップを無視
         if (scene === "title") startFromTitle();
-        else if (scene === "result" || scene === "gameover") gotoReady();
+        else if (scene === "result" || scene === "gameover") onResultTap();
       },
       { passive: false }
     );
+
+    // ストーリーパネル(タップで次ページ、最後で閉じる)
+    if (el.storyPanel) {
+      el.storyPanel.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        advanceStory();
+      }, { passive: false });
+    }
 
     // シーンUIボタン(較正はオプション画面から入る)
     el.btnCalib.addEventListener("pointerdown", (e) => {
@@ -196,13 +226,21 @@ const Game = (() => {
   // 新しいレベルを自動生成して状態を初期化。seed省略時は時刻から新規seed。
   function startLevel(seed) {
     curSeed = (seed === undefined) ? (Date.now() >>> 0) : (seed >>> 0);
+    // 章を選択から確定(?chapter= はデバッグ用に優先残置)。テーマ・densityMul の参照元。
+    currentChapter = urlChapter ? (parseInt(urlChapter, 10) - 1) : (selChapter - 1);
     // 装備効果を最新化(出撃準備での変更を確実に反映)
     if (typeof Equip !== "undefined") Equip.refresh();
-    // 曲の総拍数からゴール距離を逆算(未ロード時は較正用の仮値)。DESIGN §4
-    const tb = Conductor.totalBeats || CONFIG.STAGE.TEST_BEATS;
-    level = LevelGen.generate({ totalBeats: tb, seed: curSeed });
-    Player.init(level, effectiveChar());
     const theme = chapterTheme();
+    // このステージがボスステージ(章の5面)か
+    bossStage = (selStage === 5);
+    bossTriggered = false;
+    bossDefeatedHandled = false;
+    bossRestActive = false;
+    if (typeof Boss !== "undefined") Boss.reset();
+    // 曲の総拍数からゴール距離を逆算(未ロード時は較正用の仮値)。DESIGN §4/§10
+    const tb = Conductor.totalBeats || CONFIG.STAGE.TEST_BEATS;
+    level = LevelGen.generate({ totalBeats: tb, seed: curSeed, boss: bossStage, densityMul: theme.densityMul });
+    Player.init(level, effectiveChar());
     // 敵の実体化:抽選・位相は seed 由来の乱数(リトライ再現性)。variantRateは章テーマ由来(色違い抽選)
     Enemies.init(level, LevelGen.rng((curSeed ^ 0x9e3779b9) >>> 0), theme.variantRate);
     // 拾得アイテム(ハート/シールド/ブースト)の種別抽選もseed由来の別系統の乱数を使う
@@ -230,18 +268,64 @@ const Game = (() => {
   }
 
   // 「いざ!」で出撃準備からステージへ。常に新しいレベル・曲を頭から開始する。
+  // 章のステージ1を初めて選んだときは章開始ストーリーを挟んでから開始する(章ごと初回)。
   function gotoStage() {
+    const ci = selChapter - 1;
+    const intro = STORY.chapterIntro[ci];
+    if (selStage === 1 && intro && !SAVE.data.progress.seenChapterIntro[ci]) {
+      SAVE.data.progress.seenChapterIntro[ci] = true;
+      SAVE.save();
+      showStory(intro, beginStage);
+      return;
+    }
+    beginStage();
+  }
+
+  // 実際のステージ開始(章開始ストーリー完了後に呼ばれることもある)。
+  function beginStage() {
     scene = "stage";
     startLevel();
     startStageConductor();
     applySceneUI();
   }
 
-  // ゴール到達 → リザルトシーン。メトロノームを止めて成績を提示する。コインは全額持ち帰り。
+  // 進行を更新(ステージクリア時)。DESIGN §10・Step8
+  //   通常(1〜4面): その章が最新解放章なら次ステージを解放。
+  //   ボス(5面): 該当章のボス撃破フラグを立て、最新解放章なら次章のステージ1を解放。
+  function recordClear(chapter, stage, isBoss) {
+    const pr = SAVE.data.progress;
+    if (isBoss) {
+      if (chapter >= 1 && chapter <= 3) pr.clearedBoss[chapter - 1] = true;
+      if (chapter === pr.unlockedChapter && chapter < 3) {
+        pr.unlockedChapter = chapter + 1;
+        pr.unlockedStage = 1;
+      }
+    } else {
+      if (chapter === pr.unlockedChapter) {
+        pr.unlockedStage = Math.max(pr.unlockedStage, Math.min(5, stage + 1));
+      }
+    }
+    SAVE.save();
+  }
+
+  // ゴール到達/ボス撃破 → リザルトシーン。成績を提示。コインは全額持ち帰り(ボスはボーナス加算)。
   function gotoResult() {
     scene = "result";
     Conductor.stop();
     resultCoins = (typeof Items !== "undefined") ? Items.settle(true) : 0;
+    // ボスクリア:撃破ボーナスコインを加算(DESIGN §10)。
+    if (bossClear) {
+      const kind = ["silencer", "beatcrusher", "mutos"][selChapter - 1];
+      const bonus = (CONFIG.BOSSES[kind] && CONFIG.BOSSES[kind].coinBonus) || 0;
+      if (bonus > 0) {
+        SAVE.data.coins = (SAVE.data.coins || 0) + bonus;
+        SAVE.save();
+        resultCoins += bonus;
+      }
+      bossClearChapter = selChapter;
+    }
+    // 進行更新(実際にクリアしたときのみ到達する経路)
+    recordClear(selChapter, selStage, bossClear);
     applySceneUI();
   }
 
@@ -265,6 +349,12 @@ const Game = (() => {
     scene = "ready";
     Conductor.stop();
     applySceneUI();
+    // オープニング演出(初回のみ。seenOpening で管理)
+    if (!SAVE.data.progress.seenOpening) {
+      SAVE.data.progress.seenOpening = true;
+      SAVE.save();
+      showStory(STORY.opening, null);
+    }
   }
 
   // オプション(音量・較正・セーブ初期化)
@@ -295,6 +385,69 @@ const Game = (() => {
     el.calibPanel.classList.toggle("hidden", scene !== "calibration");
     // modeselect/ready/options/jukebox のDOM表示切替はhome.jsへ委譲
     if (typeof Home !== "undefined") Home.applyScene(scene);
+  }
+
+  // ---- ストーリー(章間テキスト演出。DESIGN §10・Step8) ----
+  // 各ページは1文字列。オープニング/エンディングは複数ページ、章開始/撃破は1〜複数ページ。
+  const STORY = {
+    opening: [
+      "音楽が消えた朝、世界は灰色になった。",
+      "音を喰らう魔王『ミュートス』のしわざだ。",
+      "リズムの心臓を持つネズミ・ラットは、奪われた音のカケラを追って駆け出した——。",
+    ],
+    chapterIntro: [
+      ["第1章 静寂の森 — 鳥の歌も、風の音もしない。森の奥で、何かが羽ばたいている……"],
+      ["第2章 ノイズの機械都市 — 歯車はきしみ、街は不協和音に沈む。工場の奥から、重い足音が響く……"],
+      ["最終章 音喰らいの城 — 世界中の音が、ここに呑まれている。玉座で魔王ミュートスが嗤う……"],
+    ],
+    bossDefeat: [
+      ["サイレンサーは墜ちた。森に小鳥のさえずりが戻る。カケラは次の街を指している——"],
+      ["ビートクラッシャーは沈黙した。機械たちは正しいリズムを取り戻し、街に音楽が流れ出す。残るカケラは、あの城に——"],
+      [
+        "最後の音のカケラが解き放たれ、世界に音楽が戻った。",
+        "ラットの心臓は今日も、確かなリズムを刻んでいる。",
+        "〜 THE END 〜",
+      ],
+    ],
+  };
+
+  // ストーリーパネルを表示。pages=文字列配列。全ページ送り終えたら onDone を呼ぶ。
+  function showStory(pages, onDone) {
+    if (!el.storyPanel || !pages || !pages.length) { if (onDone) onDone(); return; }
+    story.pages = pages;
+    story.idx = 0;
+    story.onDone = onDone || null;
+    story.active = true;
+    el.storyText.textContent = pages[0];
+    el.storyPanel.classList.remove("hidden");
+  }
+
+  // ストーリーを1ページ進める。最後まで来たら閉じて onDone を呼ぶ。
+  function advanceStory() {
+    if (!story.active) return;
+    story.idx++;
+    if (story.idx >= story.pages.length) {
+      story.active = false;
+      el.storyPanel.classList.add("hidden");
+      const cb = story.onDone;
+      story.onDone = null;
+      if (cb) cb();
+      return;
+    }
+    el.storyText.textContent = story.pages[story.idx];
+  }
+
+  // リザルト/ゲームオーバーのタップ処理。ボスクリア後は撃破ストーリーを挟んでから出撃準備へ。
+  function onResultTap() {
+    if (scene === "result" && bossClearChapter > 0) {
+      const ci = bossClearChapter - 1;
+      const pages = STORY.bossDefeat[ci];
+      bossClearChapter = 0;
+      bossClear = false;
+      if (pages) { showStory(pages, gotoReady); return; }
+    }
+    bossClear = false;
+    gotoReady();
   }
 
   // ゴール到達時にテレポート検証で使う所要拍(デバッグ用)
@@ -392,6 +545,7 @@ const Game = (() => {
 
   function handleStageInput(type, ctxTime) {
     if (goalReached) return; // GOAL演出中は入力を受けない
+    if (bossRestActive) return; // ミュートスの強制休符中は入力を受けない(REST扱い)
     const res = Conductor.judge(ctxTime);
     // 休符区間(div=0):無反応。コンボ・タップ・判定内訳に含めない。
     if (res.verdict === "REST") return;
@@ -481,8 +635,24 @@ const Game = (() => {
   }
 
   function updateStage(dt) {
-    // 現在が休符区間(div=0)か。休符中は敵の拍処理を止める(プレイヤーは judge が REST)。
+    // 現在が休符区間(div=0)か。休符中は敵・ボスの拍処理を止める(プレイヤーは judge が REST)。
     restNow = Conductor.running && Conductor.sectionAt(Conductor.currentBeat()).div === 0;
+    // ミュートスの強制休符(音喰らい)が有効か。入力遮断・レーン暗転に流用する(敵・弾は動く)。
+    bossRestActive = bossStage && bossTriggered && typeof Boss !== "undefined" && Boss.isForcedRest();
+
+    // ボス戦の開始判定:アリーナ左端(triggerX)へ入ったらボス出現+左壁をせり上げる(見た目+トラップ)。
+    if (bossStage && !bossTriggered && level.arena) {
+      const p0 = Player.pos();
+      if (p0.tx >= level.arena.triggerX) {
+        bossTriggered = true;
+        Boss.spawn(currentChapter, level);
+        // 左壁を実体化して閉じ込める(row5,6,7 の3タイル。DESIGN §10「左壁がせり上がって閉じる」)。
+        const wc = level.arena.leftWall;
+        for (let ry = level.arena.standRow - 2; ry <= level.arena.standRow; ry++) {
+          if (ry >= 0 && ry < level.h) level.tiles[ry][wc] = "#";
+        }
+      }
+    }
 
     Player.update(dt);
     // フィーバー状態をEnemiesへ毎フレーム反映(撃破時のコインドロップ2倍判定用。DESIGN §3・Step7)
@@ -491,6 +661,12 @@ const Game = (() => {
     // プレイヤー行動(攻撃/移動=入力時に即時)→ 敵行動 → 接触、の順で1拍内を処理。
     // 休符中(restNow)は敵・弾・爆弾の行動を止める。
     Enemies.update(dt, restNow);
+    // ボス(拍駆動)。曲の休符(restNow)中のみ停止。強制休符中はボス自身が「移動のみ・攻撃しない」を保証する。
+    if (bossStage && bossTriggered && typeof Boss !== "undefined") {
+      Boss.update(dt, restNow);
+      // ボスのジャンププレス等の画面揺れ要求を回収
+      if (Boss.takeShake) { const s = Boss.takeShake(); if (s > 0) shakeMag = Math.min(40, shakeMag + s); }
+    }
     // コイン回収(拍と無関係・毎フレーム判定)
     if (typeof Items !== "undefined") Items.update(dt);
 
@@ -520,6 +696,19 @@ const Game = (() => {
     // カメラ:プレイヤー描画X+向き先読みへLERP追従、レベル端でクランプ
     const target = clampCamX(p.x + p.dir * CONFIG.CAMERA.FORWARD_TILES);
     cam.x += (target - cam.x) * CONFIG.CAMERA.LERP;
+
+    if (bossStage) {
+      // ボスステージ:撃破演出(gone)まで見届けてからクリア。ゴール旗の判定はしない。
+      if (bossTriggered && !bossDefeatedHandled && typeof Boss !== "undefined" && Boss.isDefeated()) {
+        bossDefeatedHandled = true;
+        goalReached = true;
+        goalBeat = currentBeatOrZero();
+        songClear = false;
+        bossClear = true;
+        gotoResult();
+      }
+      return;
+    }
 
     // ゴール判定(同タイル)→ リザルトへ
     if (!goalReached && p.tx === level.goalX && p.ty === level.goalY) {
@@ -556,6 +745,7 @@ const Game = (() => {
       if (level) renderWorld(); // 較正のみ経由でlevel未生成のまま来ることは無いが念のため
       if (typeof Items !== "undefined") Items.draw(g, cam);
       Enemies.draw(g, cam);
+      if (bossStage && bossTriggered && typeof Boss !== "undefined") Boss.draw(g, cam);
       if (level) Player.draw(g, cam);
       renderGameover();
     } else {
@@ -571,14 +761,18 @@ const Game = (() => {
       if (level) renderWorld();
       if (typeof Items !== "undefined") Items.draw(g, cam);
       Enemies.draw(g, cam);
+      // ボス(敵より手前・プレイヤーより奥に描く)
+      if (bossStage && bossTriggered && typeof Boss !== "undefined") Boss.draw(g, cam);
       if (level) Player.draw(g, cam);
       g.restore();
-      // 休符区間:画面を少し暗く+「♪休符♪」小表示
-      if (restNow) renderRestOverlay();
+      // 休符区間/ボスの強制休符:画面を少し暗く+「♪休符♪」小表示
+      if (restNow || bossRestActive) renderRestOverlay();
       NotesUI.draw(g, VW, VH);
       // コンボフィーバー:画面縁が拍に同期して脈動発光(しきい値は装備で変動)
       if (combo >= feverThreshold()) renderComboFeverEdge();
       renderHUD();
+      // ボスHPバー(画面上部・フェーズ2で色変化)
+      if (bossStage && bossTriggered && typeof Boss !== "undefined" && Boss.active) renderBossHP();
       if (missFlash > 0) {
         g.fillStyle = `rgba(255,60,80,${0.35 * (missFlash / 0.25)})`;
         g.fillRect(0, 0, VW, VH);
@@ -719,13 +913,18 @@ const Game = (() => {
     g.textAlign = "center";
     g.fillStyle = "#ffd54a";
     g.font = "bold 110px sans-serif";
-    g.fillText("CLEAR!", VW / 2, 210);
+    g.fillText(bossClear ? "BOSS CLEAR!" : "CLEAR!", VW / 2, 210);
+
+    // クリアしたステージ(章-面)表記
+    g.fillStyle = "#9fb4ff";
+    g.font = "bold 30px sans-serif";
+    g.fillText(`ステージ ${selChapter}-${selStage} クリア`, VW / 2, 258);
 
     // 曲内クリアボーナス(曲が終わる前にゴール)。DESIGN §4
     if (songClear) {
       g.fillStyle = "#5adf7a";
-      g.font = "bold 34px sans-serif";
-      g.fillText("♪ 曲内クリア! ♪", VW / 2, 262);
+      g.font = "bold 30px sans-serif";
+      g.fillText("♪ 曲内クリア! ♪", VW / 2, 292);
     }
 
     // 判定内訳
@@ -888,6 +1087,29 @@ const Game = (() => {
     g.restore();
   }
 
+  // ボスHPバー(画面上部中央)。名前+バー。フェーズ2で色が変わる。DESIGN §10・Step8
+  function renderBossHP() {
+    const barW = VW * 0.6, barH = 26;
+    const bx = (VW - barW) / 2, by = 24;
+    const ratio = Boss.maxHp > 0 ? Math.max(0, Boss.hp / Boss.maxHp) : 0;
+    // 名前
+    g.textAlign = "center";
+    g.fillStyle = "#e8ecff";
+    g.font = "bold 26px sans-serif";
+    g.fillText(Boss.name, VW / 2, by - 4);
+    // 枠
+    g.fillStyle = "rgba(0,0,0,0.5)";
+    g.fillRect(bx - 3, by - 3, barW + 6, barH + 6);
+    // 残量
+    const p2 = Boss.phase >= 2;
+    g.fillStyle = p2 ? "#ff5a6a" : "#c85adf";
+    g.fillRect(bx, by, barW * ratio, barH);
+    // 枠線
+    g.strokeStyle = "rgba(255,255,255,0.7)";
+    g.lineWidth = 2;
+    g.strokeRect(bx, by, barW, barH);
+  }
+
   function renderHUD() {
     // 左上:HPハート、その下にコイン所持数、ブースト中はさらにその下に残り拍数
     drawHearts(24, 34);
@@ -940,9 +1162,16 @@ const Game = (() => {
       lines.push(`seed: ${curSeed}`);
       lines.push(`chunkCount: ${level.chunkCount}  goalDist: ${level.goalDist.toFixed(1)}`);
     }
-    lines.push(`chapter: ${currentChapter + 1} ${chapterTheme().name}`);
+    lines.push(`chapter: ${currentChapter + 1} ${chapterTheme().name}  stage: ${selChapter}-${selStage}`);
     lines.push(`char: ${effectiveChar()}  hp: ${Player.hp}/${Player.maxHp}  kills: ${enemiesKilled}`);
     lines.push(`enemies: ${Enemies.count}  bullets: ${Enemies.bulletCount}  bombs: ${Enemies.bombCount}`);
+    if (bossStage && typeof Boss !== "undefined") {
+      lines.push(`BOSS: ${Boss.spawned ? Boss.name : "-"} trig:${bossTriggered ? 1 : 0} st:${Boss.state} hp:${Boss.hp}/${Boss.maxHp} ph:${Boss.phase} rest:${bossRestActive ? 1 : 0}`);
+    }
+    if (SAVE.data.progress) {
+      const pr = SAVE.data.progress;
+      lines.push(`prog: unlkCh:${pr.unlockedChapter} unlkStg:${pr.unlockedStage} boss:[${pr.clearedBoss.map((b) => b ? 1 : 0).join(",")}]`);
+    }
     if (scene === "stage" && level) {
       const p = Player.pos();
       lines.push(`player tx,ty: ${p.tx},${p.ty}  state: ${p.state}  inv: ${Player.isInvulnerable() ? 1 : 0}`);
@@ -1004,11 +1233,28 @@ const Game = (() => {
       if (urlChar) return; // URLデバッグ指定が優先
       if (CONFIG.CHARACTERS[id]) selectedChar = id;
     },
+    // 出撃準備での章・ステージ選択(home.jsから呼ばれる)。
+    _getStageSel() { return { chapter: selChapter, stage: selStage }; },
+    _setStageSel(chapter, stage) {
+      selChapter = Math.max(1, Math.min(3, chapter | 0));
+      selStage = Math.max(1, Math.min(5, stage | 0));
+    },
     // 検証用:任意seedでレベル再生成 / ゴール直前へテレポート
     _startLevel: startLevel,
     _teleportToGoal() {
       if (!level) return;
       Player._debugSetTile(level.goalX, level.goalY);
+    },
+    // 検証用:任意章のボスステージへ直行(章1始まり)。ステージ5・該当章に設定して開始する。
+    _gotoBossStage(chapter) {
+      selChapter = Math.max(1, Math.min(3, chapter | 0));
+      selStage = 5;
+      beginStage();
+    },
+    // 検証用:ボスアリーナのトリガー手前へテレポート(進入でボス戦開始)。
+    _teleportToArena() {
+      if (!level || !level.arena) return;
+      Player._debugSetTile(level.arena.triggerX, level.arena.standRow);
     },
   };
 })();

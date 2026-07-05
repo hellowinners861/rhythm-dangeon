@@ -316,6 +316,24 @@ const LevelGen = (() => {
     ],
   ];
 
+  // ボスアリーナチャンク(幅24×高さ11・平坦・DESIGN §10・Step8)。
+  // 右端(col23)に高さ3(row5,6,7)の壁。左端は境界規格どおり開いていて、
+  //   プレイヤーが進入した後に game.js が左壁(col0の高さ3)をせり上がらせて閉じる(見た目+トラップ)。
+  // ground は row8,9,10。'G' は置かない(ボス撃破=クリア)。
+  const ARENA = [
+    "........................",
+    "........................",
+    "........................",
+    "........................",
+    "........................",
+    ".......................#",
+    ".......................#",
+    ".......................#",
+    "########################",
+    "########################",
+    "########################",
+  ];
+
   // 文字列配列 → レベル構造体。
   // 返り値: { w, h, tiles(tiles[y][x]=char), startX, startY, goalX, goalY }
   function parse(rows) {
@@ -368,20 +386,24 @@ const LevelGen = (() => {
     return rows;
   }
 
-  // 自動生成。DESIGN §4:
-  //   goalDist = totalBeats × ADVANCE_RATE
-  //   chunkCount = max(2, round(goalDist / CHUNK_W))  … スタート+中間×n+ゴール
+  // 自動生成。DESIGN §4/§10:
+  //   通常: goalDist = totalBeats × ADVANCE_RATE / chunkCount = max(2, round(goalDist/CHUNK_W))
+  //         スタート+中間×n+ゴール。
+  //   boss=true: 通常区間を「曲の約0.5周分」(totalBeats × BOSS_RATE × ADVANCE_RATE タイル)で生成し、
+  //         ゴールの代わりに末尾へボスアリーナ(ARENA)を接続する。level.isBoss / level.arena を持つ。
+  //   densityMul: E/C/I マーカーの採用率係数(章の密度)。SPAWN_RATE×densityMul(上限1)でシード抽選する。
   // 返り値: parse済みレベル + spawns[{type,tx,ty}] + chunkCount / seed / goalDist。
-  function generate({ totalBeats, seed } = {}) {
+  function generate({ totalBeats, seed, boss, densityMul } = {}) {
     const S = CONFIG.STAGE;
     const tb = totalBeats || S.TEST_BEATS;
     const sd = (seed >>> 0);
     const rand = rng(sd);
+    const isBoss = !!boss;
 
-    const goalDist = tb * S.ADVANCE_RATE;
+    const goalDist = tb * (isBoss ? S.BOSS_RATE : 1) * S.ADVANCE_RATE;
     const chunkCount = Math.max(2, Math.round(goalDist / S.CHUNK_W));
 
-    // スタート → 中間×(chunkCount-2) → ゴール
+    // スタート → 中間×(chunkCount-2) → ゴール/アリーナ
     const chunks = [START];
     let lastIdx = -1;
     for (let i = 0; i < chunkCount - 2; i++) {
@@ -389,18 +411,25 @@ const LevelGen = (() => {
       chunks.push(MIDDLE[idx]);
       lastIdx = idx;
     }
-    chunks.push(GOAL);
+    // ボスモードは末尾を ARENA(幅24)にする。通常はゴールチャンク(幅16)。
+    chunks.push(isBoss ? ARENA : GOAL);
 
     const rows = concatChunks(chunks);
     const level = parse(rows);
 
     // スポーン候補(E/C/I)をタイル走査で収集。座標はタイル基準(真実)。
+    // densityMul: SPAWN_RATE × densityMul(上限1)でシード抽選し、採用したものだけ spawns に残す。
+    //   チャンク配置に影響しないよう、抽選には chunk 選択とは別系統の乱数(seed 由来)を使う。
+    const srand = rng((sd ^ 0x1234567) >>> 0);
+    const dMul = (typeof densityMul === "number") ? densityMul : 1;
     const spawns = [];
     for (let ty = 0; ty < level.h; ty++) {
       for (let tx = 0; tx < level.w; tx++) {
         const ch = level.tiles[ty][tx];
         if (ch === "E" || ch === "C" || ch === "I") {
-          spawns.push({ type: ch, tx, ty });
+          const base = (S.SPAWN_RATE && S.SPAWN_RATE[ch] != null) ? S.SPAWN_RATE[ch] : 1;
+          const rate = Math.min(1, base * dMul);
+          if (srand() < rate) spawns.push({ type: ch, tx, ty });
         }
       }
     }
@@ -409,6 +438,20 @@ const LevelGen = (() => {
     level.chunkCount = chunkCount;
     level.seed = sd;
     level.goalDist = goalDist;
+    level.isBoss = isBoss;
+    if (isBoss) {
+      // アリーナは末尾チャンク。左端の全体列(startX)= ground rows の並びから算出。
+      const startX = level.w - S.ARENA_W; // アリーナ左端の全体列
+      level.arena = {
+        startX,
+        leftWall: startX,             // 進入後にせり上げる左壁の列(row5,6,7)
+        playLeft: startX + 1,         // せり上げ後の最左通行可能列
+        playRight: startX + S.ARENA_W - 2, // 右壁(col23)の1つ内側=最右通行可能列
+        triggerX: startX + 3,         // プレイヤーがこの列に到達したらボス戦開始
+        groundRow: S.BORDER_GROUND_Y, // 最初の床の行(=8)
+        standRow: S.BORDER_GROUND_Y - 1, // 地上ユニットの足元が乗る行(=7)
+      };
+    }
     return level;
   }
 
@@ -429,5 +472,5 @@ const LevelGen = (() => {
     ];
   }
 
-  return { generate, rng, parse, solidAt, testLevel, MIDDLE, START, GOAL };
+  return { generate, rng, parse, solidAt, testLevel, MIDDLE, START, GOAL, ARENA };
 })();

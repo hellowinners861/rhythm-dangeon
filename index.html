@@ -51,6 +51,11 @@
       <div id="ready-message" class="ready-message hidden"></div>
       <div class="ready-body">
         <section class="ready-section">
+          <h2>章・ステージ</h2>
+          <div id="chapter-tabs" class="chapter-tabs"></div>
+          <div id="stage-buttons" class="stage-buttons"></div>
+        </section>
+        <section class="ready-section">
           <h2>キャラ</h2>
           <div id="char-slots" class="char-slots"></div>
         </section>
@@ -142,6 +147,12 @@
       </div>
       <div id="jukebox-list" class="item-list"></div>
     </div>
+  </div>
+
+  <!-- ストーリー(章間テキスト演出。game.jsが制御。タップで次へ) -->
+  <div id="story-panel" class="hidden">
+    <div id="story-text" class="story-text"></div>
+    <div class="story-hint">タップで次へ ▶</div>
   </div>
 
   <!-- 下部タッチ操作ボタン -->

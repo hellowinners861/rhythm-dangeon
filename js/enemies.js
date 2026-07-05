@@ -627,6 +627,7 @@ const Enemies = (() => {
 
   return {
     init, update, draw, damageAt, enemyAt, setFever,
+    spawn: _debugSpawn, // ボスの召喚など動的スポーンの正式API(kind, tx, ty[, phase])
     get count() { return list.length; },
     get bulletCount() { return bullets.length; },
     get bombCount() { return bombs.length; },

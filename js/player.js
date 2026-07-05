@@ -73,6 +73,18 @@ const Player = (() => {
     return (typeof Equip !== "undefined") ? Equip.stats() : EMPTY_STATS;
   }
 
+  // 攻撃タイルのダメージ解決。ザコ(Enemies)とボス(Boss)の両方へ当てる(DESIGN §10・Step8)。
+  // 戻り値は撃破座標つきの結果配列(game側のblast/vampire・撃破検出に使う)。
+  function dealDamage(tiles, atk) {
+    let out = [];
+    if (typeof Enemies !== "undefined") out = Enemies.damageAt(tiles, atk);
+    if (typeof Boss !== "undefined" && Boss.active) {
+      const br = Boss.damageAt(tiles, atk);
+      if (br && br.length) out = out.concat(br);
+    }
+    return out;
+  }
+
   function solid(cx, cy) {
     return LevelGen.solidAt(level, cx, cy);
   }
@@ -307,6 +319,12 @@ const Player = (() => {
     for (let i = 0; i < tiles; i++) {
       const nx = reached + dir;
       if (solid(nx, ty)) break;                    // 壁 → 手前まで
+      // ボス占有タイルは大きな壁のように扱う:ダメージを与えて手前で停止(通り抜けない)。
+      if (typeof Boss !== "undefined" && Boss.active && Boss.occupies(nx, ty)) {
+        const res = Boss.damageAt([{ tx: nx, ty }], atk);
+        results.push(...res);
+        break;
+      }
       const e = (typeof Enemies !== "undefined") ? Enemies.enemyAt(nx, ty) : null;
       if (e) {
         const res = Enemies.damageAt([{ tx: nx, ty }], atk);
@@ -339,8 +357,7 @@ const Player = (() => {
     const stats = getStats();
     const tiles = [{ tx: tx + dir, ty }, { tx: tx + dir, ty: ty - 1 }];
     if (stats.pierce) tiles.push({ tx: tx + dir * 2, ty }, { tx: tx + dir * 2, ty: ty - 1 });
-    let results = [];
-    if (typeof Enemies !== "undefined") results = Enemies.damageAt(tiles, atk);
+    const results = dealDamage(tiles, atk);
     attack = { t: 0, dur: 0.2, dir, type: "sword", beamEndTx: 0 };
     return results;
   }
@@ -356,8 +373,7 @@ const Player = (() => {
     const tiles = [];
     let cx = tx + dir;
     while (!solid(cx, ty) && cx >= 0 && cx < level.w) { tiles.push({ tx: cx, ty }); cx += dir; }
-    let results = [];
-    if (typeof Enemies !== "undefined") results = Enemies.damageAt(tiles, atk);
+    const results = dealDamage(tiles, atk);
     reloadUntilBeat = curBeat() + (char.reloadBeats || 1);
     attack = { t: 0, dur: 0.16, dir, type: "beam", beamEndTx: cx - dir };
     return results;

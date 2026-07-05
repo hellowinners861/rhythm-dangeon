@@ -30,6 +30,8 @@ const Home = (() => {
     el.btnReadyBack = $("btn-ready-back");
     el.readyCoinCount = $("ready-coin-count");
     el.readyMessage = $("ready-message");
+    el.chapterTabs = $("chapter-tabs");
+    el.stageButtons = $("stage-buttons");
     el.charSlots = $("char-slots");
     el.equipSlots = $("equip-slots");
     el.btnOpenShop = $("btn-open-shop");
@@ -154,8 +156,93 @@ const Home = (() => {
   // --- 出撃準備 ---
   function renderReady() {
     if (el.readyCoinCount) el.readyCoinCount.textContent = String(SAVE.data.coins);
+    renderStageSelect();
     renderCharSlots();
     renderEquipSlots();
+  }
+
+  // --- 章・ステージ選択(DESIGN §10・Step8) ---
+  // unlockedChapter … 解放済みの最新章。これ未満の章は全ステージクリア済み(全解放)。
+  // unlockedStage   … unlockedChapter 内で解放済みの最新ステージ(=次に挑めるステージ)。
+  function progress() { return SAVE.data.progress; }
+  function sel() {
+    return (typeof Game !== "undefined" && Game._getStageSel) ? Game._getStageSel() : { chapter: 1, stage: 1 };
+  }
+  // 章 c(1始まり)内で選択可能な最大ステージ。
+  function selectableMax(c) {
+    const pr = progress();
+    if (c < pr.unlockedChapter) return 5;         // クリア済みの章は全解放
+    if (c === pr.unlockedChapter) return pr.unlockedStage;
+    return 0;                                     // 未解放の章
+  }
+  // 章 c・ステージ s がクリア済みか。
+  function isCleared(c, s) {
+    const pr = progress();
+    if (c < pr.unlockedChapter) return true;      // 過去章は全クリア
+    if (c === pr.unlockedChapter) {
+      if (s < pr.unlockedStage) return true;
+      if (s === 5) return !!pr.clearedBoss[c - 1];
+    }
+    return false;
+  }
+
+  function renderStageSelect() {
+    renderChapterTabs();
+    renderStageButtons();
+  }
+
+  function renderChapterTabs() {
+    if (!el.chapterTabs) return;
+    el.chapterTabs.innerHTML = "";
+    const pr = progress();
+    const cur = sel().chapter;
+    for (let c = 1; c <= 3; c++) {
+      const unlocked = c <= pr.unlockedChapter;
+      const div = document.createElement("div");
+      div.className = "chapter-tab" + (c === cur ? " active" : "") + (unlocked ? "" : " locked");
+      const name = CONFIG.CHAPTERS[c - 1] ? CONFIG.CHAPTERS[c - 1].name : ("第" + c + "章");
+      div.textContent = unlocked ? (c + "章 " + name) : ("🔒 " + c + "章");
+      if (unlocked) tap(div, () => onTapChapter(c));
+      el.chapterTabs.appendChild(div);
+    }
+  }
+
+  function onTapChapter(c) {
+    const s = sel();
+    if (s.chapter === c) return;
+    // 章切替時はステージ1を選択(解放済みなら)
+    if (typeof Game !== "undefined" && Game._setStageSel) Game._setStageSel(c, 1);
+    renderStageSelect();
+  }
+
+  function renderStageButtons() {
+    if (!el.stageButtons) return;
+    el.stageButtons.innerHTML = "";
+    const s = sel();
+    const c = s.chapter;
+    const maxSel = selectableMax(c);
+    for (let st = 1; st <= 5; st++) {
+      const selectable = st <= maxSel;
+      const cleared = isCleared(c, st);
+      const isBoss = st === 5;
+      const div = document.createElement("div");
+      div.className = "stage-btn"
+        + (st === s.stage ? " selected" : "")
+        + (selectable ? "" : " locked")
+        + (isBoss ? " boss" : "");
+      let label;
+      if (!selectable) label = "🔒";
+      else if (isBoss) label = cleared ? "BOSS ✓" : "BOSS";
+      else label = cleared ? (st + " ✓") : String(st);
+      div.textContent = label;
+      if (selectable) tap(div, () => onTapStage(c, st));
+      el.stageButtons.appendChild(div);
+    }
+  }
+
+  function onTapStage(c, st) {
+    if (typeof Game !== "undefined" && Game._setStageSel) Game._setStageSel(c, st);
+    renderStageButtons();
   }
 
   function renderCharSlots() {

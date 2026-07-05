@@ -420,3 +420,90 @@ html, body {
   width: 100%;
   touch-action: none;
 }
+
+/* ---- 章・ステージ選択(DESIGN §10・Step8) ---- */
+.chapter-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+.chapter-tab {
+  flex: 1;
+  padding: 6px 2px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid transparent;
+  color: #fff;
+  font-size: 10px;
+  text-align: center;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chapter-tab.active {
+  background: rgba(255, 213, 74, 0.25);
+  border-color: #ffd54a;
+}
+.chapter-tab.locked {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.stage-buttons {
+  display: flex;
+  gap: 5px;
+}
+.stage-btn {
+  flex: 1;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 2px solid transparent;
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+}
+.stage-btn.selected { border-color: #ffd54a; }
+.stage-btn.boss { color: #ff9fb0; font-weight: bold; }
+.stage-btn.locked {
+  opacity: 0.45;
+  cursor: default;
+  color: #8f9bbf;
+}
+
+/* ---- ストーリー(章間テキスト演出) ---- */
+#story-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(4, 5, 12, 0.94);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 30px;
+  text-align: center;
+  pointer-events: auto;
+}
+.story-text {
+  font-size: 22px;
+  line-height: 1.7;
+  color: #e8ecff;
+  max-width: 720px;
+}
+.story-hint {
+  position: absolute;
+  bottom: 24px;
+  font-size: 14px;
+  color: #9fb4ff;
+  opacity: 0.8;
+  animation: story-blink 1.2s ease-in-out infinite;
+}
+@keyframes story-blink {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.9; }
+}
