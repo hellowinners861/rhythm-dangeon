@@ -88,20 +88,65 @@ const SFX = (() => {
     }
   }
 
-  // コイン回収音。判定音(judge)とは別の軽い上昇音。
-  function coin() {
-    const now = ctx.currentTime;
+  // コイン回収音の1音ぶんを鳴らすヘルパー(coin()内でアルペジオを組むのに使う)
+  function coinNote(startOffset, freq, dur, peak) {
+    const st = ctx.currentTime + startOffset;
     const o = ctx.createOscillator();
     const g = ctx.createGain();
     o.type = "square";
-    o.frequency.setValueAtTime(1320, now);
-    o.frequency.exponentialRampToValueAtTime(1980, now + 0.07);
-    g.gain.setValueAtTime(0.0001, now);
-    g.gain.exponentialRampToValueAtTime(0.2, now + 0.015);
-    g.gain.exponentialRampToValueAtTime(0.0001, now + 0.11);
+    o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, st);
+    g.gain.exponentialRampToValueAtTime(peak, st + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, st + dur);
     o.connect(g).connect(seGain);
-    o.start(now);
-    o.stop(now + 0.13);
+    o.start(st);
+    o.stop(st + dur + 0.02);
+  }
+
+  // コイン回収音。判定音(judge)とは別の軽い上昇音。額面(value)が大きいほど豪華にする(改修バッチ)。
+  //   引数なし or 1 … 従来の軽い上昇音(後方互換)
+  //   3  … 2音
+  //   10 … 3音アルペジオ
+  //   50 … 4音アルペジオ+キラン(高音のきらめき)
+  function coin(value) {
+    const now = ctx.currentTime;
+    if (value === undefined || value <= 1) {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = "square";
+      o.frequency.setValueAtTime(1320, now);
+      o.frequency.exponentialRampToValueAtTime(1980, now + 0.07);
+      g.gain.setValueAtTime(0.0001, now);
+      g.gain.exponentialRampToValueAtTime(0.2, now + 0.015);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + 0.11);
+      o.connect(g).connect(seGain);
+      o.start(now);
+      o.stop(now + 0.13);
+    } else if (value <= 3) {
+      coinNote(0,     1320, 0.11, 0.2);
+      coinNote(0.045, 1760, 0.13, 0.2);
+    } else if (value <= 10) {
+      coinNote(0,    880,    0.12, 0.22);
+      coinNote(0.05, 1108.7, 0.12, 0.22);
+      coinNote(0.1,  1318.5, 0.14, 0.22);
+    } else {
+      coinNote(0,     880,    0.12, 0.24);
+      coinNote(0.045, 1108.7, 0.12, 0.24);
+      coinNote(0.09,  1318.5, 0.12, 0.24);
+      coinNote(0.135, 1760,   0.14, 0.24);
+      // キラン(高音のきらめき)
+      const sp = ctx.createOscillator();
+      const sg = ctx.createGain();
+      sp.type = "sine";
+      sp.frequency.setValueAtTime(2640, now + 0.18);
+      sp.frequency.exponentialRampToValueAtTime(3520, now + 0.32);
+      sg.gain.setValueAtTime(0.0001, now + 0.18);
+      sg.gain.exponentialRampToValueAtTime(0.22, now + 0.19);
+      sg.gain.exponentialRampToValueAtTime(0.0001, now + 0.34);
+      sp.connect(sg).connect(seGain);
+      sp.start(now + 0.18);
+      sp.stop(now + 0.36);
+    }
   }
 
   // ジャンプ音。短い上昇スイープ(判定成立時のみ呼ばれる。player.js)
