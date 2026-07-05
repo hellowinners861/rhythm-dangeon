@@ -1,5 +1,5 @@
-// player.js … プレイヤー(拍ゲート式の行動・トゥイーン・重力)
-// DESIGN §3。Step2は移動/ジャンプ/重力/タイル衝突のみ(攻撃は空振りモーション)。
+// player.js … プレイヤー(拍ゲート式の行動・トゥイーン・重力・戦闘)
+// DESIGN §3/§5。Step4で 3キャラの攻撃・HP・被弾・無敵・ノックバックを追加。
 //
 // 【座標の二重系】
 //   tx, ty … タイル座標(整数)。これが「真実」。壁・着地・ゴール判定は全てこれで行う。
@@ -7,6 +7,7 @@
 // 【時計の区別】
 //   トゥイーンの所要秒は「拍→秒」換算(60/bpm × 拍数)で決めるが、
 //   進行そのものは update(dt) の rAF delta で進める(拍計算には使わない=描画系)。
+//   無敵・リロードの残り拍数の判定は Conductor.currentBeat()(=AudioContext時計)で行う。
 
 const Player = (() => {
   let level = null;
@@ -17,6 +18,14 @@ const Player = (() => {
   let x = 0, y = 0;
   let dir = 1; // 向き(+1=右 / -1=左)
   let state = "idle"; // "idle" | "move" | "jump" | "fall"
+
+  // キャラ定義・戦闘状態
+  let charId = "rat";
+  let char = null;
+  let hp = 3, maxHp = 3;
+  let invulnUntilBeat = 0;   // この拍まで無敵(拍基準)
+  let reloadUntilBeat = 0;   // ガンナー:この拍までビーム不可
+  let hurtCount = 0;         // 被弾成立の累計(ゲーム側が演出検出に使う)
 
   // 横トゥイーン(全状態で共通。x を xEnd へイーズ)
   const xt = { from: 0, end: 0, t: 0, dur: 0.001, active: false };
@@ -29,8 +38,8 @@ const Player = (() => {
   let vy = 0;        // 落下速度(タイル/s)
   let landY = 0;     // 着地予定タイル行
 
-  // 攻撃の空振りモーション(見た目のみ)
-  let attack = { t: 0, dur: 0, dir: 1 };
+  // 攻撃モーション(見た目)。type=tackle/sword/beam/beamfail
+  let attack = { t: 0, dur: 0, dir: 1, type: "tackle", beamEndTx: 0 };
 
   const P = () => CONFIG.PHYSICS;
 
@@ -38,6 +47,9 @@ const Player = (() => {
   function beatsToSec(beats) {
     const bpm = (Conductor && Conductor.bpm) ? Conductor.bpm : CONFIG.METRONOME.BPM;
     return (60 / bpm) * beats;
+  }
+  function curBeat() {
+    return (Conductor && Conductor.running) ? Conductor.currentBeat() : 0;
   }
 
   function solid(cx, cy) {
@@ -54,8 +66,16 @@ const Player = (() => {
     return 1 - q * q * q;
   }
 
-  function init(lv) {
+  function init(lv, cid) {
     level = lv;
+    charId = (cid && CONFIG.CHARACTERS[cid]) ? cid : "rat";
+    char = CONFIG.CHARACTERS[charId];
+    maxHp = char.hp;
+    hp = char.hp;
+    invulnUntilBeat = 0;
+    reloadUntilBeat = -1e9; // 開始前(負の拍)でもビームを撃てるように十分過去にしておく
+    hurtCount = 0;
+
     tx = level.startX;
     ty = level.startY;
     x = tx; y = ty;
@@ -63,7 +83,7 @@ const Player = (() => {
     state = "idle";
     xt.active = false; yt.active = false;
     vy = 0;
-    attack = { t: 0, dur: 0, dir: 1 };
+    attack = { t: 0, dur: 0, dir: 1, type: "tackle", beamEndTx: 0 };
     // 開始位置の足元が空なら落下から始める(安全策)
     if (!solid(tx, ty + 1)) startFall();
   }
@@ -90,9 +110,17 @@ const Player = (() => {
     yt.active = false;
   }
 
+  // 敵タイルへ「攻撃以外で」進入した際の接触ダメージ(移動はキャンセルしない)。
+  function maybeTouch(d) {
+    if (typeof Enemies === "undefined") return;
+    const e = Enemies.enemyAt(tx, ty);
+    if (e) hurt(e.def.dmg, d);
+  }
+
   // --- 行動(判定成立=PERFECT/GOOD の拍でのみ game から呼ばれる) ---
-  function act(type, verdict) {
-    if (type === "attack") { doAttack(); return; }
+  // opts.fever … フィーバー中(攻撃倍率)
+  function act(type, verdict, opts) {
+    if (type === "attack") { doAttack(opts || {}); return; }
     if (type === "left" || type === "right") {
       const d = type === "right" ? 1 : -1;
       dir = d;
@@ -117,6 +145,7 @@ const Player = (() => {
         startXTween(tx, moveSec);
         startYTween(ty, moveSec);
         state = "move";
+        maybeTouch(d);
       }
       // 駆け上がり不可の壁 → その場で向きだけ変える(成立扱い・移動なし)
       return;
@@ -126,6 +155,7 @@ const Player = (() => {
     startXTween(tx, moveSec);
     yt.active = false;
     state = "move";
+    maybeTouch(d);
   }
 
   // 空中制御:横1タイルぶん描画目標をずらす(壁があれば成立扱いで無視)
@@ -136,6 +166,7 @@ const Player = (() => {
     tx = ntx;
     startXTween(tx, moveSec);
     if (state === "fall") landY = computeLanding(ty); // 着地予定を更新
+    maybeTouch(d);
   }
 
   function doJump() {
@@ -151,10 +182,108 @@ const Player = (() => {
     jump.dur = Math.max(0.001, beatsToSec(P().JUMP_RISE_BEATS));
     xt.active = false;
     state = "jump";
+    maybeTouch(0);
   }
 
-  function doAttack() {
-    attack = { t: 0, dur: 0.18, dir };
+  // --- 攻撃(キャラ固有) ---
+  function attackPower(opts) {
+    let a = char.atk;
+    if (opts && opts.fever) a = Math.ceil(a * CONFIG.COMBAT.FEVER_ATK_MUL);
+    return a;
+  }
+
+  function doAttack(opts) {
+    if (char.type === "tackle") doTackle(opts);
+    else if (char.type === "sword") doSword(opts);
+    else if (char.type === "beam") doBeam(opts);
+  }
+
+  // ラット:前方 tackleTiles へ突進。経路上の敵に順次ダメージ。生存敵の手前で停止。
+  function doTackle(opts) {
+    const atk = attackPower(opts);
+    const tiles = char.tackleTiles || 2;
+    let reached = tx;
+    for (let i = 0; i < tiles; i++) {
+      const nx = reached + dir;
+      if (solid(nx, ty)) break;                    // 壁 → 手前まで
+      const e = (typeof Enemies !== "undefined") ? Enemies.enemyAt(nx, ty) : null;
+      if (e) {
+        const res = Enemies.damageAt([{ tx: nx, ty }], atk);
+        const killed = res.some((r) => r.killed);
+        if (killed) { reached = nx; continue; }    // 倒した → 通り抜ける
+        break;                                     // 生存 → 手前で停止(すり抜けない)
+      }
+      reached = nx;
+    }
+    if (reached !== tx) {
+      tx = reached;
+      startXTween(tx, beatsToSec(P().MOVE_TWEEN_BEATS));
+      if (airborne()) {
+        if (state === "fall") landY = computeLanding(ty);
+      } else {
+        yt.active = false;
+        state = "move";
+      }
+    }
+    attack = { t: 0, dur: 0.18, dir, type: "tackle", beamEndTx: 0 };
+  }
+
+  // ソードマン:前方1タイル(+その頭上1タイル)へ攻撃。移動なし。
+  function doSword(opts) {
+    const atk = attackPower(opts);
+    const tiles = [{ tx: tx + dir, ty }, { tx: tx + dir, ty: ty - 1 }];
+    if (typeof Enemies !== "undefined") Enemies.damageAt(tiles, atk);
+    attack = { t: 0, dur: 0.2, dir, type: "sword", beamEndTx: 0 };
+  }
+
+  // ガンナー:前方直線(壁まで)を貫通攻撃。reloadBeats の間は攻撃不可(移動は可)。
+  function doBeam(opts) {
+    if (curBeat() < reloadUntilBeat) {
+      attack = { t: 0, dur: 0.12, dir, type: "beamfail", beamEndTx: tx }; // 不発
+      return;
+    }
+    const atk = attackPower(opts);
+    const tiles = [];
+    let cx = tx + dir;
+    while (!solid(cx, ty) && cx >= 0 && cx < level.w) { tiles.push({ tx: cx, ty }); cx += dir; }
+    if (typeof Enemies !== "undefined") Enemies.damageAt(tiles, atk);
+    reloadUntilBeat = curBeat() + (char.reloadBeats || 1);
+    attack = { t: 0, dur: 0.16, dir, type: "beam", beamEndTx: cx - dir };
+  }
+
+  // --- 被弾 ---
+  // sourceDir … 攻撃源の方向(+1=右 / -1=左 / 0=同タイル)。ノックバックは逆方向。
+  function hurt(dmg, sourceDir) {
+    if (hp <= 0) return false;
+    if (isInvulnerable()) return false;
+    hp -= dmg;
+    if (hp < 0) hp = 0;
+
+    // ノックバック(壁なら0)
+    let kb = -Math.sign(sourceDir || 0);
+    if (kb === 0) kb = -dir;
+    let moved = false;
+    for (let i = 0; i < CONFIG.COMBAT.KNOCKBACK_TILES; i++) {
+      const nx = tx + kb;
+      if (solid(nx, ty)) break;
+      tx = nx; moved = true;
+    }
+    if (moved) {
+      startXTween(tx, beatsToSec(P().MOVE_TWEEN_BEATS));
+      if (!airborne()) {
+        if (!solid(tx, ty + 1)) startFall(); // 足場外へ弾かれたら落下
+      } else if (state === "fall") {
+        landY = computeLanding(ty);
+      }
+    }
+    invulnUntilBeat = curBeat() + CONFIG.COMBAT.INVULN_BEATS;
+    hurtCount++;
+    return true;
+  }
+
+  function isInvulnerable() {
+    if (!(Conductor && Conductor.running)) return false;
+    return curBeat() < invulnUntilBeat;
   }
 
   // --- 毎フレーム更新(描画・トゥイーン専用。拍計算には使わない) ---
@@ -215,42 +344,73 @@ const Player = (() => {
     const cy = (y - cam.y) * TILE + VH / 2;      // タイル中心のスクリーンY
     const r = TILE * 0.42;
 
-    // 攻撃の突き量
-    let thrust = 0, atkAlpha = 0;
+    // 攻撃の突き量(タックルのみ体を突き出す)
+    let thrust = 0, atkAlpha = 0, ap = 0;
     if (attack.dur > 0) {
-      const ap = attack.t / attack.dur;
+      ap = attack.t / attack.dur;
       const bump = Math.sin(ap * Math.PI); // 0→1→0
-      thrust = bump * TILE * 0.5 * attack.dir;
+      if (attack.type === "tackle") thrust = bump * TILE * 0.5 * attack.dir;
       atkAlpha = 1 - ap;
     }
 
+    // ビーム(貫通線)は体より先に描く
+    if (attack.dur > 0 && attack.type === "beam") {
+      const ex = (attack.beamEndTx - cam.x) * TILE + VW / 2;
+      g.globalAlpha = atkAlpha;
+      g.strokeStyle = "#ff6b6b";
+      g.lineWidth = 10 * (0.4 + 0.6 * atkAlpha);
+      g.beginPath();
+      g.moveTo(cx + attack.dir * r, cy);
+      g.lineTo(ex + attack.dir * TILE * 0.5, cy);
+      g.stroke();
+      g.strokeStyle = "#ffd0d0";
+      g.lineWidth = 4;
+      g.beginPath();
+      g.moveTo(cx + attack.dir * r, cy);
+      g.lineTo(ex + attack.dir * TILE * 0.5, cy);
+      g.stroke();
+      g.globalAlpha = 1;
+    }
+
+    // 無敵中は点滅(演出のみ・performance.now)
+    let bodyAlpha = 1;
+    if (isInvulnerable()) {
+      bodyAlpha = 0.35 + 0.35 * (0.5 + 0.5 * Math.sin(performance.now() / 60));
+    }
+
+    g.save();
+    g.globalAlpha = bodyAlpha;
+
     // 影
-    g.fillStyle = "rgba(0,0,0,0.32)";
+    g.globalAlpha = bodyAlpha * 0.32;
+    g.fillStyle = "#000";
     g.beginPath();
     g.ellipse(cx, cy + r * 0.95, r * 0.85, r * 0.28, 0, 0, Math.PI * 2);
     g.fill();
+    g.globalAlpha = bodyAlpha;
 
-    // 体
-    g.fillStyle = airborne() ? "#8fd3ff" : "#7fb0ff";
+    // 体(キャラ色)
+    g.fillStyle = airborne() ? shade(char.color, 1.12) : char.color;
     g.beginPath();
     g.arc(cx + thrust * 0.3, cy, r, 0, Math.PI * 2);
     g.fill();
 
     // 目(向きに応じてオフセット)
-    const ex = cx + thrust * 0.3 + dir * r * 0.22;
+    const ex2 = cx + thrust * 0.3 + dir * r * 0.22;
     g.fillStyle = "#fff";
     g.beginPath();
-    g.arc(ex - r * 0.18, cy - r * 0.18, r * 0.22, 0, Math.PI * 2);
-    g.arc(ex + r * 0.18, cy - r * 0.18, r * 0.22, 0, Math.PI * 2);
+    g.arc(ex2 - r * 0.18, cy - r * 0.18, r * 0.22, 0, Math.PI * 2);
+    g.arc(ex2 + r * 0.18, cy - r * 0.18, r * 0.22, 0, Math.PI * 2);
     g.fill();
     g.fillStyle = "#12141c";
     g.beginPath();
-    g.arc(ex - r * 0.14 + dir * 3, cy - r * 0.16, r * 0.1, 0, Math.PI * 2);
-    g.arc(ex + r * 0.22 + dir * 3, cy - r * 0.16, r * 0.1, 0, Math.PI * 2);
+    g.arc(ex2 - r * 0.14 + dir * 3, cy - r * 0.16, r * 0.1, 0, Math.PI * 2);
+    g.arc(ex2 + r * 0.22 + dir * 3, cy - r * 0.16, r * 0.1, 0, Math.PI * 2);
     g.fill();
+    g.restore();
 
-    // 攻撃エフェクト(前方の円)
-    if (atkAlpha > 0) {
+    // 攻撃エフェクト(タックル=前方の円 / 剣=弧 / ビーム不発=×)
+    if (atkAlpha > 0 && attack.type === "tackle") {
       g.globalAlpha = atkAlpha;
       g.strokeStyle = "#ffe08a";
       g.lineWidth = 5;
@@ -258,7 +418,38 @@ const Player = (() => {
       g.arc(cx + dir * TILE * 0.7, cy, TILE * 0.32, 0, Math.PI * 2);
       g.stroke();
       g.globalAlpha = 1;
+    } else if (atkAlpha > 0 && attack.type === "sword") {
+      // 前方に弧を描く斬撃
+      g.globalAlpha = atkAlpha;
+      g.strokeStyle = "#eaffea";
+      g.lineWidth = 7;
+      const a0 = attack.dir > 0 ? -Math.PI * 0.6 : Math.PI * 0.4;
+      const a1 = attack.dir > 0 ? Math.PI * 0.6 : Math.PI * 1.6;
+      g.beginPath();
+      g.arc(cx + attack.dir * TILE * 0.5, cy - TILE * 0.1, TILE * 0.7, a0, a1);
+      g.stroke();
+      g.globalAlpha = 1;
+    } else if (atkAlpha > 0 && attack.type === "beamfail") {
+      // リロード中の不発(×印)
+      g.globalAlpha = atkAlpha;
+      g.strokeStyle = "#8f9bbf";
+      g.lineWidth = 4;
+      const bx = cx + dir * TILE * 0.6;
+      g.beginPath();
+      g.moveTo(bx - 8, cy - 8); g.lineTo(bx + 8, cy + 8);
+      g.moveTo(bx + 8, cy - 8); g.lineTo(bx - 8, cy + 8);
+      g.stroke();
+      g.globalAlpha = 1;
     }
+  }
+
+  // 色を明るく/暗くする簡易ヘルパ(#rrggbb 前提)
+  function shade(hex, mul) {
+    const n = parseInt(hex.slice(1), 16);
+    const R = Math.min(255, Math.round(((n >> 16) & 255) * mul));
+    const G = Math.min(255, Math.round(((n >> 8) & 255) * mul));
+    const B = Math.min(255, Math.round((n & 255) * mul));
+    return `rgb(${R},${G},${B})`;
   }
 
   function pos() {
@@ -272,5 +463,13 @@ const Player = (() => {
     xt.active = false; yt.active = false;
   }
 
-  return { init, act, update, draw, pos, _debugSetTile };
+  return {
+    init, act, update, draw, pos, hurt, isInvulnerable, _debugSetTile,
+    get hp() { return hp; },
+    get maxHp() { return maxHp; },
+    get charId() { return charId; },
+    get charName() { return char ? char.name : ""; },
+    get hurtCount() { return hurtCount; },
+    isDead() { return hp <= 0; },
+  };
 })();

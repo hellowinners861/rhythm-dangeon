@@ -45,10 +45,33 @@ const CONFIG = {
     BORDER_GROUND_Y: 8,   // チャンク境界の床の行(接続保証用)
   },
 
+  // プレイアブルキャラ(DESIGN §5)。type=攻撃方式。色は描画プレースホルダ。
+  CHARACTERS: {
+    rat:   { name: "ラット",     hp: 3, atk: 1, type: "tackle", tackleTiles: 2, color: "#7fb0ff" },
+    sword: { name: "ソードマン", hp: 4, atk: 1, type: "sword",  range: 1,       color: "#7fd39b" },
+    gun:   { name: "ガンナー",   hp: 2, atk: 2, type: "beam",   reloadBeats: 1, color: "#ffb066" },
+  },
+
+  // 戦闘の共通調整値(DESIGN §3)
+  COMBAT: {
+    INVULN_BEATS: 2,      // 被弾後の無敵拍数
+    KNOCKBACK_TILES: 1,   // 被弾ノックバック(タイル)
+    FEVER_ATK_MUL: 1.5,   // フィーバー中の攻撃倍率(切り上げ)
+    HITSTOP_MS: 40,       // 敵撃破時のヒットストップ(rAF側演出・拍計算に不使用)
+  },
+
+  // ザコ敵・基本6種(DESIGN §7)。interval=行動周期(拍)、dmg=接触/攻撃ダメージ。
+  // 色・形パラメータも各敵に持たせる(データ駆動)。
+  ENEMIES: {
+    slime:  { name: "スライム",   hp: 1, dmg: 1, interval: 2, ai: "patrol",  color: "#7fd36b" },
+    bat:    { name: "バット",     hp: 1, dmg: 1, interval: 1, ai: "chase",   fly: true, color: "#a98fe0", vision: 8 },
+    knight: { name: "ナイト",     hp: 2, dmg: 1, interval: 2, ai: "knight",  color: "#c3c9dc" },
+    gunner: { name: "ガンナー敵", hp: 1, dmg: 1, interval: 4, ai: "shooter", color: "#e0a56b", bulletSpeed: 1 },
+    ghost:  { name: "ゴースト",   hp: 1, dmg: 1, interval: 2, ai: "ghost",   fly: true, color: "#cfe3ff", vision: 12 },
+    bomber: { name: "ボマー",     hp: 2, dmg: 1, interval: 3, ai: "bomber",  color: "#e07f97", bombFuse: 2 },
+  },
+
   // --- 以降のステップで追記予定 ---
-  // STAGE: {...},        // ADVANCE_RATE・チャンク幅
-  // CHARACTERS: {...},   // 3キャラのHP/威力/射程/CD/解放価格
-  // ENEMIES: {...},      // ザコ12種
   // BOSSES: {...},       // ボス3種
   // ITEMS: {...},        // 拾得アイテム
   // EQUIPMENT: {...},    // 装備40種

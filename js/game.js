@@ -7,6 +7,8 @@ const Game = (() => {
   const VH = CONFIG.VIEW.H;
   const TILE = CONFIG.TILE;
   const DEBUG = /[?&]debug=1\b/.test(location.search);
+  // 使用キャラ(Step4はUIなしでURLパラメータ切替)。DESIGN §5
+  const CHAR = (location.search.match(/[?&]char=(rat|sword|gun)/) || [])[1] || "rat";
 
   let canvas, g;
   let scene = "title";
@@ -23,7 +25,15 @@ const Game = (() => {
   let curSeed = 0;       // 現在レベルのseed
   const cam = { x: 0, y: 0 };
   let goalReached = false;
-  let missFlash = 0;      // ミス演出の残り秒
+  let missFlash = 0;      // ミス/被弾演出の残り秒
+
+  // 戦闘統計・演出
+  let enemiesKilled = 0;  // 倒した敵数(リザルト表示)
+  let score = 0;          // 内部スコア(撃破加算)
+  let prevKills = 0;      // Enemies.kills の前フレーム値
+  let prevHurt = 0;       // Player.hurtCount の前フレーム値
+  let shakeMag = 0;       // 画面揺れ量(px・減衰)
+  let hitstopUntil = 0;   // この時刻(performance.now)まで更新を止める(撃破演出)
 
   // 較正シーンの状態
   const calib = {
@@ -72,6 +82,7 @@ const Game = (() => {
         e.preventDefault();
         if (scene === "title") startFromTitle();
         else if (scene === "result") restartFromResult();
+        else if (scene === "gameover") retrySameSeed();
       },
       { passive: false }
     );
@@ -146,7 +157,9 @@ const Game = (() => {
   function startLevel(seed) {
     curSeed = (seed === undefined) ? (Date.now() >>> 0) : (seed >>> 0);
     level = LevelGen.generate({ totalBeats: CONFIG.STAGE.TEST_BEATS, seed: curSeed });
-    Player.init(level);
+    Player.init(level, CHAR);
+    // 敵の実体化:抽選・位相は seed 由来の乱数(リトライ再現性)
+    Enemies.init(level, LevelGen.rng((curSeed ^ 0x9e3779b9) >>> 0));
     const p = Player.pos();
     cam.y = level.h / 2;
     cam.x = clampCamX(p.x);
@@ -157,6 +170,12 @@ const Game = (() => {
     judgeStats = { perfect: 0, good: 0, miss: 0 };
     goalBeat = 0;
     missFlash = 0;
+    enemiesKilled = 0;
+    score = 0;
+    prevKills = 0;
+    prevHurt = 0;
+    shakeMag = 0;
+    hitstopUntil = 0;
   }
 
   function gotoStage() {
@@ -181,6 +200,21 @@ const Game = (() => {
   function restartFromResult() {
     scene = "stage";
     startLevel();
+    Conductor.start({ bpm: CONFIG.METRONOME.BPM, offset: 0, startDelay: 1.0 });
+    applySceneUI();
+  }
+
+  // HP0 → ゲームオーバー。メトロノームを止めて成績を提示。
+  function gotoGameover() {
+    scene = "gameover";
+    Conductor.stop();
+    applySceneUI();
+  }
+
+  // ゲームオーバーからタップで「同じseed」を最初からリトライ。
+  function retrySameSeed() {
+    scene = "stage";
+    startLevel(curSeed);
     Conductor.start({ bpm: CONFIG.METRONOME.BPM, offset: 0, startDelay: 1.0 });
     applySceneUI();
   }
@@ -265,7 +299,8 @@ const Game = (() => {
       if (combo > maxCombo) maxCombo = combo;
       if (res.verdict === "PERFECT") judgeStats.perfect++;
       else judgeStats.good++;
-      Player.act(type, res.verdict);
+      const fever = combo >= CONFIG.COMBO.FEVER_COMBO;
+      Player.act(type, res.verdict, { fever });
     }
     NotesUI.popJudge(res.verdict, res.diffMs);
     SFX.judge(res.verdict);
@@ -316,7 +351,8 @@ const Game = (() => {
     lastFrameT = ts;
     if (dt > 0.1) dt = 0.1; // タブ復帰などの大ジャンプを抑制
 
-    if (scene === "stage") updateStage(dt);
+    // 撃破ヒットストップ中は更新を止める(rAF側の演出。拍計算には影響しない)
+    if (scene === "stage" && performance.now() >= hitstopUntil) updateStage(dt);
 
     render();
     requestAnimationFrame(loop);
@@ -324,7 +360,30 @@ const Game = (() => {
 
   function updateStage(dt) {
     Player.update(dt);
+    // 敵の拍駆動AI(拍跨ぎ処理は内部でConductor基準)。ダメージ解決順:
+    // プレイヤー行動(攻撃/移動=入力時に即時)→ 敵行動 → 接触、の順で1拍内を処理。
+    Enemies.update(dt);
+
+    // 被弾演出:Player.hurtCount の増加を検出(接触・弾・爆発・攻撃拍いずれも共通)
+    if (Player.hurtCount > prevHurt) {
+      prevHurt = Player.hurtCount;
+      combo = 0;                 // コンボ切れ
+      missFlash = 0.25;          // 赤フラッシュ
+      shakeMag = Math.min(30, shakeMag + 16); // 画面揺れ
+    }
+    // 撃破演出:Enemies.kills の増加を検出(攻撃・爆発いずれも共通)
+    if (Enemies.kills > prevKills) {
+      const dk = Enemies.kills - prevKills;
+      prevKills = Enemies.kills;
+      enemiesKilled += dk;
+      score += dk * 100;
+      hitstopUntil = performance.now() + CONFIG.COMBAT.HITSTOP_MS; // 軽いヒットストップ
+    }
     if (missFlash > 0) missFlash = Math.max(0, missFlash - dt);
+    if (shakeMag > 0) shakeMag = Math.max(0, shakeMag - 120 * dt);
+
+    // ゲームオーバー
+    if (Player.isDead()) { gotoGameover(); return; }
 
     const p = Player.pos();
     // カメラ:プレイヤー描画X+向き先読みへLERP追従、レベル端でクランプ
@@ -355,14 +414,27 @@ const Game = (() => {
     } else if (scene === "result") {
       renderBackground();
       renderResult();
-    } else {
+    } else if (scene === "gameover") {
       renderBackground();
       renderWorld();
+      Enemies.draw(g, cam);
       Player.draw(g, cam);
+      renderGameover();
+    } else {
+      renderBackground();
+      // 画面揺れ(ワールド・敵・プレイヤーのみ。背景/HUDは揺らさない)
+      g.save();
+      if (shakeMag > 0) {
+        g.translate((Math.random() * 2 - 1) * shakeMag, (Math.random() * 2 - 1) * shakeMag);
+      }
+      renderWorld();
+      Enemies.draw(g, cam);
+      Player.draw(g, cam);
+      g.restore();
       NotesUI.draw(g, VW, VH);
       renderHUD();
       if (missFlash > 0) {
-        g.fillStyle = `rgba(255,60,80,${0.35 * (missFlash / 0.22)})`;
+        g.fillStyle = `rgba(255,60,80,${0.35 * (missFlash / 0.25)})`;
         g.fillRect(0, 0, VW, VH);
       }
     }
@@ -430,20 +502,15 @@ const Game = (() => {
     drawGoal();
   }
 
-  // スポーン候補の可視化(仮): E=赤丸枠 / C=黄小円 / I=緑四角枠
+  // スポーン候補の可視化(仮): C=黄小円 / I=緑四角枠
+  // (E=敵は Enemies が実体化して描画するのでここでは描かない)
   function renderSpawns(cLo, cHi) {
     if (!level.spawns) return;
     for (const s of level.spawns) {
       if (s.tx < cLo || s.tx > cHi) continue;
       const cx = tileScreenX(s.tx) + TILE / 2;
       const cy = tileScreenY(s.ty) + TILE / 2;
-      if (s.type === "E") {
-        g.strokeStyle = "rgba(255,90,110,0.7)";
-        g.lineWidth = 3;
-        g.beginPath();
-        g.arc(cx, cy, TILE * 0.32, 0, Math.PI * 2);
-        g.stroke();
-      } else if (s.type === "C") {
+      if (s.type === "C") {
         g.fillStyle = "rgba(255,213,74,0.85)";
         g.beginPath();
         g.arc(cx, cy, TILE * 0.16, 0, Math.PI * 2);
@@ -498,6 +565,7 @@ const Game = (() => {
       ["MISS", judgeStats.miss, "#ff5a6a"],
       ["最大コンボ", maxCombo, "#e8ecff"],
       ["総タップ", taps, "#e8ecff"],
+      ["倒した敵", enemiesKilled, "#e8ecff"],
       ["所要拍数", Math.max(0, Math.round(goalBeat)), "#e8ecff"],
     ];
     g.font = "bold 40px sans-serif";
@@ -522,7 +590,66 @@ const Game = (() => {
     g.globalAlpha = 1;
   }
 
+  // ゲームオーバー画面。成績を提示し、タップで同seedリトライ。
+  function renderGameover() {
+    g.fillStyle = "rgba(14,4,8,0.78)";
+    g.fillRect(0, 0, VW, VH);
+
+    g.textAlign = "center";
+    g.fillStyle = "#ff5a6a";
+    g.font = "bold 100px sans-serif";
+    g.fillText("ゲームオーバー", VW / 2, 220);
+
+    const rows = [
+      ["倒した敵", enemiesKilled, "#ffd54a"],
+      ["最大コンボ", maxCombo, "#e8ecff"],
+      ["総タップ", taps, "#e8ecff"],
+      ["スコア", score, "#e8ecff"],
+    ];
+    g.font = "bold 40px sans-serif";
+    let y = 330;
+    for (const [label, val, col] of rows) {
+      g.textAlign = "right";
+      g.fillStyle = "#c6aeb6";
+      g.fillText(label, VW / 2 - 30, y);
+      g.textAlign = "left";
+      g.fillStyle = col;
+      g.fillText(String(val), VW / 2 + 30, y);
+      y += 56;
+    }
+
+    g.textAlign = "center";
+    const blink = 0.5 + 0.5 * Math.sin(performance.now() / 350);
+    g.globalAlpha = 0.4 + 0.6 * blink;
+    g.fillStyle = "#ff9fb0";
+    g.font = "36px sans-serif";
+    g.fillText("タップで同じステージをリトライ", VW / 2, VH - 60);
+    g.globalAlpha = 1;
+  }
+
+  // HPハート(左上)。maxHpぶんの枠を出し、残りHPを塗る。
+  function drawHearts(ox, oy) {
+    const n = Player.maxHp;
+    const hp = Player.hp;
+    const s = 26;      // ハート半径めやす
+    const gap = 8;
+    g.textAlign = "left";
+    g.textBaseline = "middle";
+    g.font = "30px sans-serif";
+    for (let i = 0; i < n; i++) {
+      const x = ox + i * (s + gap);
+      g.globalAlpha = i < hp ? 1 : 0.28;
+      g.fillStyle = i < hp ? "#ff5a6a" : "#6b7290";
+      g.fillText("♥", x, oy);
+    }
+    g.globalAlpha = 1;
+    g.textBaseline = "alphabetic";
+  }
+
   function renderHUD() {
+    // 左上:HPハート
+    drawHearts(24, 34);
+
     // 右上:コンボ / タップ(小さく常時表示)
     g.textAlign = "right";
     g.font = "bold 30px sans-serif";
@@ -558,9 +685,11 @@ const Game = (() => {
       lines.push(`seed: ${curSeed}`);
       lines.push(`chunkCount: ${level.chunkCount}  goalDist: ${level.goalDist.toFixed(1)}`);
     }
+    lines.push(`char: ${CHAR}  hp: ${Player.hp}/${Player.maxHp}  kills: ${enemiesKilled}`);
+    lines.push(`enemies: ${Enemies.count}  bullets: ${Enemies.bulletCount}  bombs: ${Enemies.bombCount}`);
     if (scene === "stage" && level) {
       const p = Player.pos();
-      lines.push(`player tx,ty: ${p.tx},${p.ty}  state: ${p.state}`);
+      lines.push(`player tx,ty: ${p.tx},${p.ty}  state: ${p.state}  inv: ${Player.isInvulnerable() ? 1 : 0}`);
       lines.push(`cam.x: ${cam.x.toFixed(2)}`);
     }
     const avg =
