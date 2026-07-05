@@ -307,7 +307,9 @@ const Enemies = (() => {
   }
 
   // --- 毎フレーム更新(拍跨ぎ処理 + トゥイーン/エフェクトの補間) ---
-  function update(dt) {
+  // frozen=true(休符区間)のときは拍の行動処理を止める。ただし lastBeat は現在拍まで
+  //   進めておき、休符明けに溜まった拍を一括処理してしまわないようにする。
+  function update(dt, frozen) {
     // 拍跨ぎ処理(拍計算のみ Conductor)
     let hits = 0;
     if (Conductor.running) {
@@ -315,10 +317,14 @@ const Enemies = (() => {
       if (lastBeat === null) {
         lastBeat = curInt;
       } else if (curInt > lastBeat) {
-        let from = lastBeat + 1;
-        if (curInt - from > 8) from = curInt - 8; // タブ復帰等:上限8拍だけ処理
-        for (let b = from; b <= curInt; b++) hits += stepBeat(b);
-        lastBeat = curInt;
+        if (frozen) {
+          lastBeat = curInt; // 休符中は行動せず拍だけ進める
+        } else {
+          let from = lastBeat + 1;
+          if (curInt - from > 8) from = curInt - 8; // タブ復帰等:上限8拍だけ処理
+          for (let b = from; b <= curInt; b++) hits += stepBeat(b);
+          lastBeat = curInt;
+        }
       }
     }
 

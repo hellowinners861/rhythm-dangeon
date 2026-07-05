@@ -26,6 +26,11 @@ const Game = (() => {
   const cam = { x: 0, y: 0 };
   let goalReached = false;
   let missFlash = 0;      // ミス/被弾演出の残り秒
+  let songClear = false;  // 曲が終わる前にゴールしたか(リザルトのボーナス表示)
+  let restNow = false;    // 現在が休符区間(div=0)か(描画・敵停止に使う)
+
+  // 楽曲ロード状態(タイトルの「読み込み中…」→「タップして開始」切替に使う)
+  let songReady = (typeof SONGS === "undefined" || SONGS.length === 0);
 
   // 戦闘統計・演出
   let enemiesKilled = 0;  // 倒した敵数(リザルト表示)
@@ -67,6 +72,11 @@ const Game = (() => {
     SAVE.load();
     // 保存済み較正値をConductorへ反映
     Conductor.previewCalibration(SAVE.data.calibrationMs);
+
+    // 楽曲を先読みロード(タイトルは「読み込み中…」表示)。失敗時もメトロノームで続行。
+    if (typeof SONGS !== "undefined" && SONGS.length > 0) {
+      Conductor.loadSong(SONGS[0]).then(() => { songReady = true; });
+    }
     el.slider.min = String(-CONFIG.CALIBRATION.MANUAL_RANGE_MS);
     el.slider.max = String(CONFIG.CALIBRATION.MANUAL_RANGE_MS);
     el.slider.value = String(SAVE.data.calibrationMs);
@@ -139,9 +149,19 @@ const Game = (() => {
 
   // ---- シーン遷移 ----
   function startFromTitle() {
+    if (!songReady) return; // 楽曲の読み込み完了前はタップを無視
     SFX.resume().then(() => {
       gotoStage();
     });
+  }
+
+  // ステージ用の時計を開始する。楽曲がロード済みなら曲を、失敗時はメトロノームを頭から。
+  function startStageConductor() {
+    if (Conductor.songLoaded) {
+      Conductor.startSong({ startDelay: 1.0 });
+    } else {
+      Conductor.start({ bpm: CONFIG.METRONOME.BPM, offset: 0, startDelay: 1.0 });
+    }
   }
 
   // カメラのX方向クランプ範囲(レベル端で見切れないように)
@@ -156,7 +176,9 @@ const Game = (() => {
   // 新しいレベルを自動生成して状態を初期化。seed省略時は時刻から新規seed。
   function startLevel(seed) {
     curSeed = (seed === undefined) ? (Date.now() >>> 0) : (seed >>> 0);
-    level = LevelGen.generate({ totalBeats: CONFIG.STAGE.TEST_BEATS, seed: curSeed });
+    // 曲の総拍数からゴール距離を逆算(未ロード時は較正用の仮値)。DESIGN §4
+    const tb = Conductor.totalBeats || CONFIG.STAGE.TEST_BEATS;
+    level = LevelGen.generate({ totalBeats: tb, seed: curSeed });
     Player.init(level, CHAR);
     // 敵の実体化:抽選・位相は seed 由来の乱数(リトライ再現性)
     Enemies.init(level, LevelGen.rng((curSeed ^ 0x9e3779b9) >>> 0));
@@ -176,16 +198,17 @@ const Game = (() => {
     prevHurt = 0;
     shakeMag = 0;
     hitstopUntil = 0;
+    songClear = false;
+    restNow = false;
   }
 
   function gotoStage() {
     const fresh = scene !== "calibration"; // 較正から戻る時はレベルを維持
     scene = "stage";
     if (fresh || !level) startLevel();
-    // メトロノーム開始(未起動なら)。offset=0, startDelay=1.0
-    if (!Conductor.running) {
-      Conductor.start({ bpm: CONFIG.METRONOME.BPM, offset: 0, startDelay: 1.0 });
-    }
+    // 楽曲(またはフォールバックのメトロノーム)を頭から開始。
+    // 較正から戻る場合もメトロノームを止めて曲に切り替える。
+    startStageConductor();
     applySceneUI();
   }
 
@@ -196,11 +219,11 @@ const Game = (() => {
     applySceneUI();
   }
 
-  // リザルトからタップで再出撃。新しいseedで再生成しメトロノームも再開。
+  // リザルトからタップで再出撃。新しいseedで再生成し曲も頭から。
   function restartFromResult() {
     scene = "stage";
     startLevel();
-    Conductor.start({ bpm: CONFIG.METRONOME.BPM, offset: 0, startDelay: 1.0 });
+    startStageConductor();
     applySceneUI();
   }
 
@@ -211,17 +234,19 @@ const Game = (() => {
     applySceneUI();
   }
 
-  // ゲームオーバーからタップで「同じseed」を最初からリトライ。
+  // ゲームオーバーからタップで「同じseed」を最初からリトライ。曲も頭から。
   function retrySameSeed() {
     scene = "stage";
     startLevel(curSeed);
-    Conductor.start({ bpm: CONFIG.METRONOME.BPM, offset: 0, startDelay: 1.0 });
+    startStageConductor();
     applySceneUI();
   }
 
   function gotoCalibration() {
     if (scene === "title") return;
     scene = "calibration";
+    // 較正は従来どおりメトロノームを使う(曲が鳴っていれば止めて切り替える)
+    Conductor.start({ bpm: CONFIG.METRONOME.BPM, offset: 0, startDelay: 1.0 });
     resetCalibCollection();
     applySceneUI();
   }
@@ -286,8 +311,11 @@ const Game = (() => {
 
   function handleStageInput(type, ctxTime) {
     if (goalReached) return; // GOAL演出中は入力を受けない
-    taps++;
     const res = Conductor.judge(ctxTime);
+    // 休符区間(div=0):無反応。コンボ・タップ・判定内訳に含めない。
+    if (res.verdict === "REST") return;
+
+    taps++;
     pushRecentDiff(res.diffMs);
 
     if (res.verdict === "MISS") {
@@ -359,10 +387,14 @@ const Game = (() => {
   }
 
   function updateStage(dt) {
+    // 現在が休符区間(div=0)か。休符中は敵の拍処理を止める(プレイヤーは judge が REST)。
+    restNow = Conductor.running && Conductor.sectionAt(Conductor.currentBeat()).div === 0;
+
     Player.update(dt);
     // 敵の拍駆動AI(拍跨ぎ処理は内部でConductor基準)。ダメージ解決順:
     // プレイヤー行動(攻撃/移動=入力時に即時)→ 敵行動 → 接触、の順で1拍内を処理。
-    Enemies.update(dt);
+    // 休符中(restNow)は敵・弾・爆弾の行動を止める。
+    Enemies.update(dt, restNow);
 
     // 被弾演出:Player.hurtCount の増加を検出(接触・弾・爆発・攻撃拍いずれも共通)
     if (Player.hurtCount > prevHurt) {
@@ -394,6 +426,8 @@ const Game = (() => {
     if (!goalReached && p.tx === level.goalX && p.ty === level.goalY) {
       goalReached = true;
       goalBeat = currentBeatOrZero();
+      // 曲が終わる前にゴールしたか(曲内クリアボーナス)。DESIGN §4
+      songClear = Conductor.totalBeats > 0 && goalBeat <= Conductor.totalBeats;
       gotoResult();
     }
   }
@@ -431,7 +465,11 @@ const Game = (() => {
       Enemies.draw(g, cam);
       Player.draw(g, cam);
       g.restore();
+      // 休符区間:画面を少し暗く+「♪休符♪」小表示
+      if (restNow) renderRestOverlay();
       NotesUI.draw(g, VW, VH);
+      // コンボフィーバー(16以上):画面縁が拍に同期して脈動発光
+      if (combo >= CONFIG.COMBO.FEVER_COMBO) renderComboFeverEdge();
       renderHUD();
       if (missFlash > 0) {
         g.fillStyle = `rgba(255,60,80,${0.35 * (missFlash / 0.25)})`;
@@ -448,25 +486,40 @@ const Game = (() => {
     g.font = "bold 72px sans-serif";
     g.fillText("リズムダンジョン", VW / 2, VH / 2 - 40);
     g.font = "36px sans-serif";
-    g.fillStyle = "#9fb4ff";
-    const blink = 0.5 + 0.5 * Math.sin(performance.now() / 350);
-    g.globalAlpha = 0.4 + 0.6 * blink;
-    g.fillText("タップして開始", VW / 2, VH / 2 + 60);
-    g.globalAlpha = 1;
+    if (!songReady) {
+      // 楽曲デコード中は開始不可(タップ無効)
+      g.fillStyle = "#8f9bbf";
+      g.fillText("読み込み中…", VW / 2, VH / 2 + 60);
+    } else {
+      g.fillStyle = "#9fb4ff";
+      const blink = 0.5 + 0.5 * Math.sin(performance.now() / 350);
+      g.globalAlpha = 0.4 + 0.6 * blink;
+      g.fillText("タップして開始", VW / 2, VH / 2 + 60);
+      g.globalAlpha = 1;
+    }
   }
 
-  // 背景:拍パルスの簡素なグラデーション
+  // 背景:拍パルスの簡素なグラデーション。fever区間は明るく・暖色に。
   function renderBackground() {
     let beatPulse = 0;
+    let fever = false;
     if (Conductor.running) {
       const b = Conductor.currentBeat();
       const frac = b - Math.floor(b);
       beatPulse = Math.max(0, 1 - frac * 2); // 拍頭で1→0
+      fever = !!Conductor.sectionAt(b).fever;
     }
     const grad = g.createLinearGradient(0, 0, 0, VH);
-    const top = 12 + beatPulse * 22;
-    grad.addColorStop(0, `hsl(230, 45%, ${8 + beatPulse * 6}%)`);
-    grad.addColorStop(1, `hsl(250, 40%, ${top}%)`);
+    if (fever) {
+      // fever区間:暖色・明るめのグラデーション
+      const top = 26 + beatPulse * 24;
+      grad.addColorStop(0, `hsl(300, 55%, ${16 + beatPulse * 8}%)`);
+      grad.addColorStop(1, `hsl(28, 70%, ${top}%)`);
+    } else {
+      const top = 12 + beatPulse * 22;
+      grad.addColorStop(0, `hsl(230, 45%, ${8 + beatPulse * 6}%)`);
+      grad.addColorStop(1, `hsl(250, 40%, ${top}%)`);
+    }
     g.fillStyle = grad;
     g.fillRect(0, 0, VW, VH);
   }
@@ -556,7 +609,14 @@ const Game = (() => {
     g.textAlign = "center";
     g.fillStyle = "#ffd54a";
     g.font = "bold 110px sans-serif";
-    g.fillText("CLEAR!", VW / 2, 220);
+    g.fillText("CLEAR!", VW / 2, 210);
+
+    // 曲内クリアボーナス(曲が終わる前にゴール)。DESIGN §4
+    if (songClear) {
+      g.fillStyle = "#5adf7a";
+      g.font = "bold 34px sans-serif";
+      g.fillText("♪ 曲内クリア! ♪", VW / 2, 262);
+    }
 
     // 判定内訳
     const rows = [
@@ -646,6 +706,41 @@ const Game = (() => {
     g.textBaseline = "alphabetic";
   }
 
+  // 休符区間の演出:画面を少し暗く+中央下に「♪休符♪」。
+  function renderRestOverlay() {
+    g.fillStyle = "rgba(4,6,16,0.42)";
+    g.fillRect(0, 0, VW, VH);
+    g.textAlign = "center";
+    const pulse = 0.6 + 0.4 * Math.sin(performance.now() / 260);
+    g.globalAlpha = pulse;
+    g.fillStyle = "#bcd0ff";
+    g.font = "bold 40px sans-serif";
+    g.fillText("♪ 休符 ♪", VW / 2, VH * 0.34);
+    g.globalAlpha = 1;
+  }
+
+  // コンボフィーバー時の画面縁発光。拍頭で強くなるよう脈動させる。
+  function renderComboFeverEdge() {
+    let pulse = 0.5;
+    if (Conductor.running) {
+      const b = Conductor.currentBeat();
+      const frac = b - Math.floor(b);
+      pulse = Math.max(0, 1 - frac * 1.6); // 拍頭で1→0
+    }
+    const w = 46 + pulse * 40;             // 縁の太さ
+    const a = 0.30 + pulse * 0.45;
+    const grad = g.createLinearGradient(0, 0, 0, VH);
+    grad.addColorStop(0, `rgba(255,213,74,${a})`);
+    grad.addColorStop(1, `rgba(255,140,60,${a})`);
+    g.save();
+    g.fillStyle = grad;
+    g.fillRect(0, 0, VW, w);                // 上
+    g.fillRect(0, VH - w, VW, w);           // 下
+    g.fillRect(0, 0, w, VH);                // 左
+    g.fillRect(VW - w, 0, w, VH);           // 右
+    g.restore();
+  }
+
   function renderHUD() {
     // 左上:HPハート
     drawHearts(24, 34);
@@ -680,6 +775,17 @@ const Game = (() => {
       "currentBeat: " +
         (Conductor.running ? Conductor.currentBeat().toFixed(3) : "-")
     );
+    // 楽曲・譜面情報(Step5)
+    lines.push(
+      `songMode: ${Conductor.songMode ? 1 : 0}  loaded: ${Conductor.songLoaded ? 1 : 0}  totalBeats: ${Conductor.totalBeats}`
+    );
+    if (Conductor.running) {
+      const cb = Conductor.chartBeat();
+      const sec = Conductor.sectionAt(Conductor.currentBeat());
+      lines.push(
+        `chartBeat: ${cb.toFixed(2)}  mood: ${sec.mood || "-"}  div: ${sec.div}${sec.fever ? " (fever)" : ""}`
+      );
+    }
     lines.push("calibration: " + Conductor.getCalibration() + "ms");
     if (level) {
       lines.push(`seed: ${curSeed}`);
