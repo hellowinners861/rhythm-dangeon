@@ -1,14 +1,19 @@
-// game.js … シーン管理・ゲームループ・カメラ・HUD・リザルト(Step3: 自動生成レベル)
-// シーン: title(タップして開始) / stage(自動生成レベル) / result(リザルト) / calibration(較正)
+// game.js … シーン管理・ゲームループ・カメラ・HUD・リザルト(Step6: 画面フロー・メタ進行)
+// シーン: title(タップして開始) → modeselect(モード選択) → ready(出撃準備)/options/jukebox(いずれもDOM表示)
+//        → stage(自動生成レベル) → result/gameover(リザルト) → ready へ戻る / calibration(較正・options経由)
 // 描画・トゥイーンはrAF、拍・判定は全てConductor経由。
+// modeselect/ready/options/jukebox はDOMオーバーレイ(home.js)が主体。Canvasは背景のみ描画する。
 
 const Game = (() => {
   const VW = CONFIG.VIEW.W;
   const VH = CONFIG.VIEW.H;
   const TILE = CONFIG.TILE;
   const DEBUG = /[?&]debug=1\b/.test(location.search);
-  // 使用キャラ(Step4はUIなしでURLパラメータ切替)。DESIGN §5
-  const CHAR = (location.search.match(/[?&]char=(rat|sword|gun)/) || [])[1] || "rat";
+  // 使用キャラ。?char= はデバッグ用URLパラメータで、出撃準備でのキャラ選択より優先度が高い。
+  // 通常は home.js の出撃準備画面での選択(selectedChar)を使う。DESIGN §5/Step6
+  const urlChar = (location.search.match(/[?&]char=(rat|sword|gun)/) || [])[1] || null;
+  let selectedChar = urlChar || "rat";
+  function effectiveChar() { return urlChar || selectedChar; }
 
   let canvas, g;
   let scene = "title";
@@ -39,6 +44,8 @@ const Game = (() => {
   let prevHurt = 0;       // Player.hurtCount の前フレーム値
   let shakeMag = 0;       // 画面揺れ量(px・減衰)
   let hitstopUntil = 0;   // この時刻(performance.now)まで更新を止める(撃破演出)
+  let feverWasActive = false; // フィーバー突入の瞬間検出(雷の笛用)
+  let resultCoins = 0;    // リザルト/ゲームオーバーで持ち帰ったコイン(表示用)
 
   // 較正シーンの状態
   const calib = {
@@ -72,6 +79,10 @@ const Game = (() => {
     SAVE.load();
     // 保存済み較正値をConductorへ反映
     Conductor.previewCalibration(SAVE.data.calibrationMs);
+    // 保存済み音量をSFXへ反映
+    SFX.setVolume(SAVE.data.volumes.bgm, SAVE.data.volumes.se);
+    // 装備効果を集計(Equip.stats()キャッシュの初期化)
+    if (typeof Equip !== "undefined") Equip.refresh();
 
     // 楽曲を先読みロード(タイトルは「読み込み中…」表示)。失敗時もメトロノームで続行。
     if (typeof SONGS !== "undefined" && SONGS.length > 0) {
@@ -85,26 +96,25 @@ const Game = (() => {
     Input.init();
     Input.onAction(onAction);
 
-    // タイトルでのタップ(AudioContext解禁)
+    // タイトルでのタップ(AudioContext解禁)。result/gameoverのタップは出撃準備へ戻る。
     canvas.addEventListener(
       "pointerdown",
       (e) => {
         e.preventDefault();
         if (scene === "title") startFromTitle();
-        else if (scene === "result") restartFromResult();
-        else if (scene === "gameover") retrySameSeed();
+        else if (scene === "result" || scene === "gameover") gotoReady();
       },
       { passive: false }
     );
 
-    // シーンUIボタン
+    // シーンUIボタン(較正はオプション画面から入る)
     el.btnCalib.addEventListener("pointerdown", (e) => {
       e.preventDefault();
       gotoCalibration();
     });
     el.btnBack.addEventListener("pointerdown", (e) => {
       e.preventDefault();
-      gotoStage();
+      gotoOptions();
     });
     el.btnRetry.addEventListener("pointerdown", (e) => {
       e.preventDefault();
@@ -120,6 +130,9 @@ const Game = (() => {
       el.sliderVal.textContent = ms + "ms";
       Conductor.setCalibration(ms);
     });
+
+    // モード選択/出撃準備/オプション/曲視聴のDOMオーバーレイ(home.js)
+    if (typeof Home !== "undefined") Home.init();
 
     applySceneUI();
     resize();
@@ -148,10 +161,11 @@ const Game = (() => {
   }
 
   // ---- シーン遷移 ----
+  // タイトルタップ後はモード選択へ(従来の即ステージ開始をやめる。DESIGN §1)
   function startFromTitle() {
     if (!songReady) return; // 楽曲の読み込み完了前はタップを無視
     SFX.resume().then(() => {
-      gotoStage();
+      gotoModeSelect();
     });
   }
 
@@ -176,12 +190,15 @@ const Game = (() => {
   // 新しいレベルを自動生成して状態を初期化。seed省略時は時刻から新規seed。
   function startLevel(seed) {
     curSeed = (seed === undefined) ? (Date.now() >>> 0) : (seed >>> 0);
+    // 装備効果を最新化(出撃準備での変更を確実に反映)
+    if (typeof Equip !== "undefined") Equip.refresh();
     // 曲の総拍数からゴール距離を逆算(未ロード時は較正用の仮値)。DESIGN §4
     const tb = Conductor.totalBeats || CONFIG.STAGE.TEST_BEATS;
     level = LevelGen.generate({ totalBeats: tb, seed: curSeed });
-    Player.init(level, CHAR);
+    Player.init(level, effectiveChar());
     // 敵の実体化:抽選・位相は seed 由来の乱数(リトライ再現性)
     Enemies.init(level, LevelGen.rng((curSeed ^ 0x9e3779b9) >>> 0));
+    if (typeof Items !== "undefined") Items.init(level);
     const p = Player.pos();
     cam.y = level.h / 2;
     cam.x = clampCamX(p.x);
@@ -200,45 +217,57 @@ const Game = (() => {
     hitstopUntil = 0;
     songClear = false;
     restNow = false;
+    feverWasActive = false;
+    resultCoins = 0;
   }
 
+  // 「いざ!」で出撃準備からステージへ。常に新しいレベル・曲を頭から開始する。
   function gotoStage() {
-    const fresh = scene !== "calibration"; // 較正から戻る時はレベルを維持
-    scene = "stage";
-    if (fresh || !level) startLevel();
-    // 楽曲(またはフォールバックのメトロノーム)を頭から開始。
-    // 較正から戻る場合もメトロノームを止めて曲に切り替える。
-    startStageConductor();
-    applySceneUI();
-  }
-
-  // ゴール到達 → リザルトシーン。メトロノームを止めて成績を提示する。
-  function gotoResult() {
-    scene = "result";
-    Conductor.stop();
-    applySceneUI();
-  }
-
-  // リザルトからタップで再出撃。新しいseedで再生成し曲も頭から。
-  function restartFromResult() {
     scene = "stage";
     startLevel();
     startStageConductor();
     applySceneUI();
   }
 
-  // HP0 → ゲームオーバー。メトロノームを止めて成績を提示。
+  // ゴール到達 → リザルトシーン。メトロノームを止めて成績を提示する。コインは全額持ち帰り。
+  function gotoResult() {
+    scene = "result";
+    Conductor.stop();
+    resultCoins = (typeof Items !== "undefined") ? Items.settle(true) : 0;
+    applySceneUI();
+  }
+
+  // HP0 → ゲームオーバー。メトロノームを止めて成績を提示。コインは規定割合を持ち帰り。
   function gotoGameover() {
     scene = "gameover";
+    Conductor.stop();
+    resultCoins = (typeof Items !== "undefined") ? Items.settle(false) : 0;
+    applySceneUI();
+  }
+
+  // タイトルタップ後のモード選択(ゲームへ/オプション/曲視聴)
+  function gotoModeSelect() {
+    scene = "modeselect";
     Conductor.stop();
     applySceneUI();
   }
 
-  // ゲームオーバーからタップで「同じseed」を最初からリトライ。曲も頭から。
-  function retrySameSeed() {
-    scene = "stage";
-    startLevel(curSeed);
-    startStageConductor();
+  // 出撃準備(キャラ/装備/ショップ)。リザルト/ゲームオーバーのタップ後もここへ戻る。
+  function gotoReady() {
+    scene = "ready";
+    Conductor.stop();
+    applySceneUI();
+  }
+
+  // オプション(音量・較正・セーブ初期化)
+  function gotoOptions() {
+    scene = "options";
+    applySceneUI();
+  }
+
+  // 曲視聴(ジュークボックス)
+  function gotoJukebox() {
+    scene = "jukebox";
     applySceneUI();
   }
 
@@ -254,8 +283,10 @@ const Game = (() => {
   function applySceneUI() {
     const showControls = scene === "stage" || scene === "calibration";
     el.controls.style.display = showControls ? "flex" : "none";
-    el.btnCalib.style.display = scene === "stage" ? "block" : "none";
+    el.btnCalib.style.display = scene === "options" ? "block" : "none";
     el.calibPanel.classList.toggle("hidden", scene !== "calibration");
+    // modeselect/ready/options/jukebox のDOM表示切替はhome.jsへ委譲
+    if (typeof Home !== "undefined") Home.applyScene(scene);
   }
 
   // ゴール到達時にテレポート検証で使う所要拍(デバッグ用)
@@ -309,6 +340,48 @@ const Game = (() => {
     }
   }
 
+  // フィーバー突入しきい値。装備(feverReq)で増減するが下限4。DESIGN §9/Step6
+  function feverThreshold() {
+    const stats = (typeof Equip !== "undefined") ? Equip.stats() : null;
+    const req = CONFIG.COMBO.FEVER_COMBO + (stats ? stats.feverReq : 0);
+    return Math.max(4, req);
+  }
+
+  // 撃破結果(Player.act の戻り値)から装備の撃破時効果を処理する。
+  //   blast(爆裂の宝玉): 撃破座標の周囲4近傍に追加ダメージ1
+  //   vampire(吸血の牙): 確率でHP1回復(上限maxHp)
+  function handleAttackResults(results) {
+    if (!results || !results.length) return;
+    const stats = (typeof Equip !== "undefined") ? Equip.stats() : null;
+    if (!stats) return;
+    for (const r of results) {
+      if (!r.killed) continue;
+      if (stats.blast) {
+        const cells = [
+          { tx: r.tx + 1, ty: r.ty }, { tx: r.tx - 1, ty: r.ty },
+          { tx: r.tx, ty: r.ty + 1 }, { tx: r.tx, ty: r.ty - 1 },
+        ];
+        Enemies.damageAt(cells, 1);
+      }
+      if (stats.vampire > 0 && Math.random() < stats.vampire) {
+        Player.heal(1);
+      }
+    }
+  }
+
+  // フィーバー突入の瞬間(雷の笛): 画面内の敵全てに1ダメージ
+  function triggerFeverLightning() {
+    if (typeof Enemies === "undefined" || typeof Enemies._list !== "function") return;
+    const cLo = Math.floor(cam.x - VW / (2 * TILE) - 1);
+    const cHi = Math.ceil(cam.x + VW / (2 * TILE) + 1);
+    const cells = [];
+    for (const e of Enemies._list()) {
+      if (e.tx < cLo || e.tx > cHi) continue;
+      cells.push({ tx: e.tx, ty: e.ty });
+    }
+    if (cells.length) Enemies.damageAt(cells, 1);
+  }
+
   function handleStageInput(type, ctxTime) {
     if (goalReached) return; // GOAL演出中は入力を受けない
     const res = Conductor.judge(ctxTime);
@@ -318,8 +391,11 @@ const Game = (() => {
     taps++;
     pushRecentDiff(res.diffMs);
 
+    const stats = (typeof Equip !== "undefined") ? Equip.stats() : null;
+
     if (res.verdict === "MISS") {
-      combo = 0;
+      // 時の靴(missComboHalf): コンボが0でなく半減で済む
+      combo = (stats && stats.missComboHalf) ? Math.floor(combo / 2) : 0;
       judgeStats.miss++;
       missFlash = 0.22; // ミス演出(軽い暗転)
     } else {
@@ -327,8 +403,18 @@ const Game = (() => {
       if (combo > maxCombo) maxCombo = combo;
       if (res.verdict === "PERFECT") judgeStats.perfect++;
       else judgeStats.good++;
-      const fever = combo >= CONFIG.COMBO.FEVER_COMBO;
-      Player.act(type, res.verdict, { fever });
+      const fever = combo >= feverThreshold();
+      // PlayerからGameを参照しないための一方向の受け渡し(コンボ数・フィーバー中か)
+      Player.setCombatContext({ combo, fever });
+      const results = Player.act(type, res.verdict, {});
+      handleAttackResults(results);
+      // フィーバー突入の瞬間を検出(雷の笛)
+      if (fever && !feverWasActive) {
+        feverWasActive = true;
+        if (stats && stats.feverLightning) triggerFeverLightning();
+      } else if (!fever) {
+        feverWasActive = false;
+      }
     }
     NotesUI.popJudge(res.verdict, res.diffMs);
     SFX.judge(res.verdict);
@@ -395,11 +481,14 @@ const Game = (() => {
     // プレイヤー行動(攻撃/移動=入力時に即時)→ 敵行動 → 接触、の順で1拍内を処理。
     // 休符中(restNow)は敵・弾・爆弾の行動を止める。
     Enemies.update(dt, restNow);
+    // コイン回収(拍と無関係・毎フレーム判定)
+    if (typeof Items !== "undefined") Items.update(dt);
 
     // 被弾演出:Player.hurtCount の増加を検出(接触・弾・爆発・攻撃拍いずれも共通)
     if (Player.hurtCount > prevHurt) {
       prevHurt = Player.hurtCount;
       combo = 0;                 // コンボ切れ
+      feverWasActive = false;    // フィーバー突入検出をリセット(雷の笛の再トリガー用)
       missFlash = 0.25;          // 赤フラッシュ
       shakeMag = Math.min(30, shakeMag + 16); // 画面揺れ
     }
@@ -445,14 +534,19 @@ const Game = (() => {
       g.fillStyle = "#05060a";
       g.fillRect(0, 0, VW, VH);
       renderTitle();
+    } else if (scene === "modeselect" || scene === "ready" || scene === "options" || scene === "jukebox") {
+      // DOMオーバーレイ(home.js)が全画面を覆うため、Canvasは薄い背景のみでよい(DESIGN §1/Step6)
+      g.fillStyle = "#05060a";
+      g.fillRect(0, 0, VW, VH);
     } else if (scene === "result") {
       renderBackground();
       renderResult();
     } else if (scene === "gameover") {
       renderBackground();
-      renderWorld();
+      if (level) renderWorld(); // 較正のみ経由でlevel未生成のまま来ることは無いが念のため
+      if (typeof Items !== "undefined") Items.draw(g, cam);
       Enemies.draw(g, cam);
-      Player.draw(g, cam);
+      if (level) Player.draw(g, cam);
       renderGameover();
     } else {
       renderBackground();
@@ -461,15 +555,19 @@ const Game = (() => {
       if (shakeMag > 0) {
         g.translate((Math.random() * 2 - 1) * shakeMag, (Math.random() * 2 - 1) * shakeMag);
       }
-      renderWorld();
+      // calibrationシーンはステージ開始前(level未生成・Player未初期化)にオプションから
+      // 直接入れるため、level が無ければワールド/プレイヤー描画を省略する
+      // (較正はメトロノームのみで完結する。Player.charがnullのままdrawするとエラーになるため)
+      if (level) renderWorld();
+      if (typeof Items !== "undefined") Items.draw(g, cam);
       Enemies.draw(g, cam);
-      Player.draw(g, cam);
+      if (level) Player.draw(g, cam);
       g.restore();
       // 休符区間:画面を少し暗く+「♪休符♪」小表示
       if (restNow) renderRestOverlay();
       NotesUI.draw(g, VW, VH);
-      // コンボフィーバー(16以上):画面縁が拍に同期して脈動発光
-      if (combo >= CONFIG.COMBO.FEVER_COMBO) renderComboFeverEdge();
+      // コンボフィーバー:画面縁が拍に同期して脈動発光(しきい値は装備で変動)
+      if (combo >= feverThreshold()) renderComboFeverEdge();
       renderHUD();
       if (missFlash > 0) {
         g.fillStyle = `rgba(255,60,80,${0.35 * (missFlash / 0.25)})`;
@@ -555,24 +653,19 @@ const Game = (() => {
     drawGoal();
   }
 
-  // スポーン候補の可視化(仮): C=黄小円 / I=緑四角枠
-  // (E=敵は Enemies が実体化して描画するのでここでは描かない)
+  // スポーン候補の可視化(仮): I=緑四角枠(Step7まで保留のプレースホルダ)
+  // C=コインは Items が実体化して描画するのでここでは描かない。
+  // E=敵も Enemies が実体化して描画するのでここでは描かない。
   function renderSpawns(cLo, cHi) {
     if (!level.spawns) return;
     for (const s of level.spawns) {
       if (s.tx < cLo || s.tx > cHi) continue;
+      if (s.type !== "I") continue;
       const cx = tileScreenX(s.tx) + TILE / 2;
       const cy = tileScreenY(s.ty) + TILE / 2;
-      if (s.type === "C") {
-        g.fillStyle = "rgba(255,213,74,0.85)";
-        g.beginPath();
-        g.arc(cx, cy, TILE * 0.16, 0, Math.PI * 2);
-        g.fill();
-      } else if (s.type === "I") {
-        g.strokeStyle = "rgba(90,223,122,0.8)";
-        g.lineWidth = 3;
-        g.strokeRect(cx - TILE * 0.26, cy - TILE * 0.26, TILE * 0.52, TILE * 0.52);
-      }
+      g.strokeStyle = "rgba(90,223,122,0.8)";
+      g.lineWidth = 3;
+      g.strokeRect(cx - TILE * 0.26, cy - TILE * 0.26, TILE * 0.52, TILE * 0.52);
     }
   }
 
@@ -627,6 +720,7 @@ const Game = (() => {
       ["総タップ", taps, "#e8ecff"],
       ["倒した敵", enemiesKilled, "#e8ecff"],
       ["所要拍数", Math.max(0, Math.round(goalBeat)), "#e8ecff"],
+      ["獲得コイン", resultCoins, "#ffd54a"],
     ];
     g.font = "bold 40px sans-serif";
     let y = 320;
@@ -640,13 +734,13 @@ const Game = (() => {
       y += 56;
     }
 
-    // 再出撃の案内(点滅)
+    // 出撃準備へ戻る案内(点滅)
     g.textAlign = "center";
     const blink = 0.5 + 0.5 * Math.sin(performance.now() / 350);
     g.globalAlpha = 0.4 + 0.6 * blink;
     g.fillStyle = "#9fb4ff";
     g.font = "36px sans-serif";
-    g.fillText("タップで再出撃", VW / 2, VH - 60);
+    g.fillText("タップで出撃準備へ", VW / 2, VH - 60);
     g.globalAlpha = 1;
   }
 
@@ -665,6 +759,7 @@ const Game = (() => {
       ["最大コンボ", maxCombo, "#e8ecff"],
       ["総タップ", taps, "#e8ecff"],
       ["スコア", score, "#e8ecff"],
+      ["獲得コイン", resultCoins, "#ffd54a"],
     ];
     g.font = "bold 40px sans-serif";
     let y = 330;
@@ -683,13 +778,14 @@ const Game = (() => {
     g.globalAlpha = 0.4 + 0.6 * blink;
     g.fillStyle = "#ff9fb0";
     g.font = "36px sans-serif";
-    g.fillText("タップで同じステージをリトライ", VW / 2, VH - 60);
+    g.fillText("タップで出撃準備へ", VW / 2, VH - 60);
     g.globalAlpha = 1;
   }
 
   // HPハート(左上)。maxHpぶんの枠を出し、残りHPを塗る。
+  // HPは装備のdefMulで小数(0.5刻み)になり得るため、半端(0<remain<1)は左半分だけ塗る。
   function drawHearts(ox, oy) {
-    const n = Player.maxHp;
+    const n = Math.round(Player.maxHp);
     const hp = Player.hp;
     const s = 26;      // ハート半径めやす
     const gap = 8;
@@ -698,12 +794,37 @@ const Game = (() => {
     g.font = "30px sans-serif";
     for (let i = 0; i < n; i++) {
       const x = ox + i * (s + gap);
-      g.globalAlpha = i < hp ? 1 : 0.28;
-      g.fillStyle = i < hp ? "#ff5a6a" : "#6b7290";
-      g.fillText("♥", x, oy);
+      const remain = hp - i;
+      if (remain > 0 && remain < 1) {
+        // 半ハート:まず空ハートを描き、左半分だけ赤で上塗り
+        g.globalAlpha = 0.28;
+        g.fillStyle = "#6b7290";
+        g.fillText("♥", x, oy);
+        g.save();
+        g.beginPath();
+        g.rect(x, oy - s, s, s * 2);
+        g.clip();
+        g.globalAlpha = 1;
+        g.fillStyle = "#ff5a6a";
+        g.fillText("♥", x, oy);
+        g.restore();
+      } else {
+        g.globalAlpha = remain >= 1 ? 1 : 0.28;
+        g.fillStyle = remain >= 1 ? "#ff5a6a" : "#6b7290";
+        g.fillText("♥", x, oy);
+      }
     }
     g.globalAlpha = 1;
     g.textBaseline = "alphabetic";
+  }
+
+  // 所持コイン(HUD左上・ハートの下)
+  function drawCoinsHUD(ox, oy) {
+    g.textAlign = "left";
+    g.fillStyle = "#ffd54a";
+    g.font = "bold 26px sans-serif";
+    const n = (typeof Items !== "undefined") ? Items.stageCoins : 0;
+    g.fillText("💰" + n, ox, oy);
   }
 
   // 休符区間の演出:画面を少し暗く+中央下に「♪休符♪」。
@@ -742,13 +863,14 @@ const Game = (() => {
   }
 
   function renderHUD() {
-    // 左上:HPハート
+    // 左上:HPハート、その下にコイン所持数
     drawHearts(24, 34);
+    drawCoinsHUD(24, 70);
 
     // 右上:コンボ / タップ(小さく常時表示)
     g.textAlign = "right";
     g.font = "bold 30px sans-serif";
-    const feverOn = combo >= CONFIG.COMBO.FEVER_COMBO;
+    const feverOn = combo >= feverThreshold();
     g.fillStyle = feverOn ? "#ffd54a" : "#e8ecff";
     g.fillText("コンボ: " + combo, VW - 30, 46);
     g.font = "22px sans-serif";
@@ -791,7 +913,7 @@ const Game = (() => {
       lines.push(`seed: ${curSeed}`);
       lines.push(`chunkCount: ${level.chunkCount}  goalDist: ${level.goalDist.toFixed(1)}`);
     }
-    lines.push(`char: ${CHAR}  hp: ${Player.hp}/${Player.maxHp}  kills: ${enemiesKilled}`);
+    lines.push(`char: ${effectiveChar()}  hp: ${Player.hp}/${Player.maxHp}  kills: ${enemiesKilled}`);
     lines.push(`enemies: ${Enemies.count}  bullets: ${Enemies.bulletCount}  bombs: ${Enemies.bombCount}`);
     if (scene === "stage" && level) {
       const p = Player.pos();
@@ -833,7 +955,7 @@ const Game = (() => {
     init();
   }
 
-  // テスト・デバッグ用に一部内部を公開
+  // テスト・デバッグ用に一部内部を公開(home.jsからのシーン遷移呼び出しにも使う)
   return {
     get scene() { return scene; },
     get combo() { return combo; },
@@ -843,6 +965,16 @@ const Game = (() => {
     get seed() { return curSeed; },
     _gotoStage: gotoStage,
     _gotoCalibration: gotoCalibration,
+    _gotoModeSelect: gotoModeSelect,
+    _gotoReady: gotoReady,
+    _gotoOptions: gotoOptions,
+    _gotoJukebox: gotoJukebox,
+    // 出撃準備でのキャラ選択(home.jsから呼ばれる。?charのURL指定がある場合は無視される)
+    _getChar: effectiveChar,
+    _setChar(id) {
+      if (urlChar) return; // URLデバッグ指定が優先
+      if (CONFIG.CHARACTERS[id]) selectedChar = id;
+    },
     // 検証用:任意seedでレベル再生成 / ゴール直前へテレポート
     _startLevel: startLevel,
     _teleportToGoal() {

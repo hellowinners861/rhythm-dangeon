@@ -196,10 +196,15 @@ const Conductor = (() => {
     }
     judgedGrid.add(key);
 
+    // 装備効果で判定窓を拡張(音符のカチューシャ/ヘッドフォン)。DESIGN §9
+    const eqStats = (typeof Equip !== "undefined") ? Equip.stats() : null;
+    const perfectMs = CONFIG.JUDGE.PERFECT_MS + (eqStats ? eqStats.perfectWindow : 0);
+    const goodMs = CONFIG.JUDGE.GOOD_MS + (eqStats ? eqStats.goodWindow : 0);
+
     const a = Math.abs(diffMs);
     let verdict;
-    if (a <= CONFIG.JUDGE.PERFECT_MS) verdict = "PERFECT";
-    else if (a <= CONFIG.JUDGE.GOOD_MS) verdict = "GOOD";
+    if (a <= perfectMs) verdict = "PERFECT";
+    else if (a <= goodMs) verdict = "GOOD";
     else verdict = "MISS";
 
     return { verdict, beat: n, diffMs };

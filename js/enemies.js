@@ -82,12 +82,13 @@ const Enemies = (() => {
   }
 
   // プレイヤーへダメージ(無敵中は Player.hurt が false を返す)。成立で1を返す。
-  function hurtPlayer(dmg, sourceTx) {
+  // opts.projectile … 弾によるダメージなら true(忍び装束のprojDefMulを適用させる)。
+  function hurtPlayer(dmg, sourceTx, opts) {
     const p = Player.pos();
     let sourceDir = 0;
     if (sourceTx > p.tx) sourceDir = 1;
     else if (sourceTx < p.tx) sourceDir = -1;
-    return Player.hurt(dmg, sourceDir) ? 1 : 0;
+    return Player.hurt(dmg, sourceDir, opts) ? 1 : 0;
   }
 
   // --- 1整数拍ぶんの行動(拍跨ぎごとに順に呼ばれる) ---
@@ -157,11 +158,14 @@ const Enemies = (() => {
   }
 
   // knight(ナイト):行動拍にプレイヤーへ横接近(崖では止まる)。隣接なら次拍を攻撃予約。
+  // 静寂のスリッパ(stealth): 隣接しても一切反応しない(待機。移動も攻撃予約もしない)。
   function stepKnight(e, b, p) {
     if (e.pendingMelee) return; // 攻撃モーション中は動かない
     if (!actsOn(e, b)) return;
     const dx = p.tx - e.tx;
+    const stealthy = typeof Equip !== "undefined" && Equip.stats().stealth;
     if (Math.abs(dx) === 1 && p.ty === e.ty) {
+      if (stealthy) return; // 静寂のスリッパ:隣接しても反応しない
       // 隣接 → 向きを合わせ、次拍に攻撃(1拍前からテレグラフ)
       e.dir = Math.sign(dx);
       e.pendingMelee = { beat: b + 1, dir: e.dir };
@@ -230,7 +234,7 @@ const Enemies = (() => {
         if (solid(cand, bl.ty)) { bl.alive = false; break; }
         nx = cand;
         if (nx === p.tx && bl.ty === p.ty) {
-          hits += hurtPlayer(1, nx - bl.dx); // 弾の進行方向へノックバック
+          hits += hurtPlayer(1, nx - bl.dx, { projectile: true }); // 弾ダメージ(忍び装束のprojDefMul対象)
           bl.alive = false; break;
         }
       }

@@ -12,9 +12,8 @@
   <!-- ゲーム描画は単一Canvas(論理解像度1600×900) -->
   <canvas id="game"></canvas>
 
-  <!-- 上部のシーン切り替えUI(DOMボタン) -->
+  <!-- 上部のシーン切り替えUI(DOMボタン)。較正モードへの入口はオプション画面内(#screen-options)にある -->
   <div id="topbar">
-    <button id="btn-calib" class="ui-btn">較正モードへ</button>
     <!-- 較正パネル(較正シーンでのみ表示) -->
     <div id="calib-panel" class="hidden">
       <div id="calib-info">メトロノームに合わせて8回タップ</div>
@@ -26,8 +25,122 @@
       <div class="calib-btns">
         <button id="btn-save" class="ui-btn">保存する</button>
         <button id="btn-retry" class="ui-btn">やり直す</button>
-        <button id="btn-back" class="ui-btn">テストへ戻る</button>
+        <button id="btn-back" class="ui-btn">オプションへ戻る</button>
       </div>
+    </div>
+  </div>
+
+  <!-- モード選択・出撃準備・オプション・曲視聴(DOMオーバーレイ。home.jsが表示制御する) -->
+  <div id="home-overlay">
+    <!-- モード選択 -->
+    <div id="screen-modeselect" class="home-screen hidden">
+      <h1 class="home-title">リズムダンジョン</h1>
+      <div class="home-btn-col">
+        <button id="btn-mode-game" class="home-btn">ゲームへ</button>
+        <button id="btn-mode-options" class="home-btn">オプション</button>
+        <button id="btn-mode-jukebox" class="home-btn">曲視聴</button>
+      </div>
+    </div>
+
+    <!-- 出撃準備 -->
+    <div id="screen-ready" class="home-screen hidden">
+      <div class="home-header">
+        <button id="btn-ready-back" class="ui-btn small">◀ モード選択へ</button>
+        <div class="coin-display">💰<span id="ready-coin-count">0</span></div>
+      </div>
+      <div id="ready-message" class="ready-message hidden"></div>
+      <div class="ready-body">
+        <section class="ready-section">
+          <h2>キャラ</h2>
+          <div id="char-slots" class="char-slots"></div>
+        </section>
+        <section class="ready-section">
+          <h2>装備</h2>
+          <div id="equip-slots" class="equip-slots"></div>
+        </section>
+        <section class="ready-section ready-section-shop">
+          <button id="btn-open-shop" class="home-btn">ショップ</button>
+        </section>
+      </div>
+      <button id="btn-launch" class="home-btn launch-btn">いざ!</button>
+    </div>
+
+    <!-- 装備の付け外し(部位タップで開くポップオーバー) -->
+    <div id="screen-equip-picker" class="home-screen hidden overlay-modal">
+      <div class="modal-box">
+        <div class="modal-header">
+          <span id="equip-picker-title">装備</span>
+          <button id="btn-equip-picker-close" class="ui-btn small">閉じる</button>
+        </div>
+        <div id="equip-picker-list" class="item-list"></div>
+      </div>
+    </div>
+
+    <!-- ショップ -->
+    <div id="screen-shop" class="home-screen hidden overlay-modal">
+      <div class="modal-box modal-box-large">
+        <div class="modal-header">
+          <span>ショップ</span>
+          <div class="coin-display">💰<span id="shop-coin-count">0</span></div>
+          <button id="btn-shop-close" class="ui-btn small">閉じる</button>
+        </div>
+        <div class="shop-tabs">
+          <button class="shop-tab" data-slot="head">頭</button>
+          <button class="shop-tab" data-slot="body">体</button>
+          <button class="shop-tab" data-slot="feet">足</button>
+          <button class="shop-tab" data-slot="weapon">武器</button>
+        </div>
+        <div id="shop-list" class="item-list"></div>
+      </div>
+    </div>
+
+    <!-- キャラ解放確認 -->
+    <div id="screen-char-confirm" class="home-screen hidden overlay-modal">
+      <div class="modal-box modal-box-small">
+        <div id="char-confirm-text"></div>
+        <div class="modal-btn-row">
+          <button id="btn-char-confirm-yes" class="ui-btn">解放する</button>
+          <button id="btn-char-confirm-no" class="ui-btn">キャンセル</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- オプション -->
+    <div id="screen-options" class="home-screen hidden">
+      <div class="home-header">
+        <button id="btn-options-back" class="ui-btn small">◀ モード選択へ</button>
+      </div>
+      <div class="options-body">
+        <div class="option-row">
+          <label for="vol-bgm">BGM音量</label>
+          <input type="range" id="vol-bgm" min="0" max="100" value="80">
+        </div>
+        <div class="option-row">
+          <label for="vol-se">SE音量</label>
+          <input type="range" id="vol-se" min="0" max="100" value="80">
+        </div>
+        <button id="btn-calib" class="ui-btn">タイミング較正</button>
+        <button id="btn-save-reset" class="ui-btn">セーブ初期化</button>
+      </div>
+    </div>
+
+    <!-- セーブ初期化確認 -->
+    <div id="screen-reset-confirm" class="home-screen hidden overlay-modal">
+      <div class="modal-box modal-box-small">
+        <div>本当にセーブデータを初期化しますか?</div>
+        <div class="modal-btn-row">
+          <button id="btn-reset-yes" class="ui-btn">初期化する</button>
+          <button id="btn-reset-no" class="ui-btn">キャンセル</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 曲視聴(ジュークボックス) -->
+    <div id="screen-jukebox" class="home-screen hidden">
+      <div class="home-header">
+        <button id="btn-jukebox-back" class="ui-btn small">◀ モード選択へ</button>
+      </div>
+      <div id="jukebox-list" class="item-list"></div>
     </div>
   </div>
 
@@ -46,11 +159,12 @@
   <!-- 縦持ち警告 -->
   <div id="rotate-guard">📱 横画面にしてください</div>
 
-  <!-- 読み込み順(DESIGN.md §14): config → sfx → save → conductor → input
+  <!-- 読み込み順(DESIGN.md §14): config → sfx → save → equip → conductor → input
        → levelgen → player → enemies → boss → items → notesui → home → songs → game -->
   <script src="js/config.js"></script>
   <script src="js/sfx.js"></script>
   <script src="js/save.js"></script>
+  <script src="js/equip.js"></script>
   <script src="js/conductor.js"></script>
   <script src="js/input.js"></script>
   <script src="js/levelgen.js"></script>
