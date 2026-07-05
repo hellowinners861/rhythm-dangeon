@@ -63,11 +63,13 @@ const Home = (() => {
     wire();
   }
 
-  // pointerdownを共通ハンドリング(較正パネル等の既存ボタンと同じ流儀)
+  // pointerdownを共通ハンドリング(較正パネル等の既存ボタンと同じ流儀)。
+  // メニューの全ボタンにSFX.uiを鳴らす(DESIGN §9・Step9)。
   function tap(elm, fn) {
     if (!elm) return;
     elm.addEventListener("pointerdown", (e) => {
       e.preventDefault();
+      if (typeof SFX !== "undefined" && SFX.ui) SFX.ui();
       fn(e);
     }, { passive: false });
   }
@@ -388,7 +390,12 @@ const Home = (() => {
   function renderShop() {
     if (el.shopCoinCount) el.shopCoinCount.textContent = String(SAVE.data.coins);
     el.shopTabs.forEach((btn) => {
-      btn.classList.toggle("active", btn.getAttribute("data-slot") === shopSlot);
+      const slot = btn.getAttribute("data-slot");
+      // タブに所持数を表記(例: 頭(3/10)。Step9)
+      const items = CONFIG.EQUIPMENT[slot] || [];
+      const ownedCount = items.filter((it) => SAVE.data.ownedEquip.includes(it.id)).length;
+      btn.textContent = `${SLOT_LABEL[slot]}(${ownedCount}/${items.length})`;
+      btn.classList.toggle("active", slot === shopSlot);
     });
     if (!el.shopList) return;
     el.shopList.innerHTML = "";

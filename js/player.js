@@ -169,9 +169,10 @@ const Player = (() => {
       dir = d;
       if (airborne()) airControl(d);
       else groundMove(d);
+      SFX.dash(); // 判定成立時のみ呼ばれる(actは成立拍でのみgameから呼ばれる)
       return [];
     }
-    if (type === "jump") { doJump(); return []; }
+    if (type === "jump") { doJump(); SFX.jump(); return []; }
     return [];
   }
 
@@ -386,6 +387,7 @@ const Player = (() => {
     if (hp <= 0) return false;
     if (isInvulnerable()) return false;
     const stats = getStats();
+    SFX.hurt();
 
     let d = dmg;
     if (opts && opts.projectile) d *= stats.projDefMul;
