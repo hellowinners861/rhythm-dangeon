@@ -18,8 +18,17 @@ const Enemies = (() => {
   let effects = [];   // 消滅・爆発などの演出(演出乱数は Math.random 可)
   let lastBeat = null; // 最後に処理した整数拍
   let kills = 0;       // 撃破総数(ゲーム側がスコア・ヒットストップ検出に使う)
+  let feverActive = false; // Game側から毎フレーム渡されるフィーバー状態(コインドロップ2倍用)
 
-  const KINDS = Object.keys(CONFIG.ENEMIES); // 抽選対象6種
+  // 抽選対象は基本6種のみ(色違いはbaseを持つため除外)。色違いは基本種を選んだ後、
+  // variantRate の確率で同baseの色違いに置換する方式(DESIGN §7/§10・Step7)。
+  const ALL_KINDS = Object.keys(CONFIG.ENEMIES);
+  const KINDS = ALL_KINDS.filter((k) => !CONFIG.ENEMIES[k].base);
+  const VARIANT_OF = {}; // 基本種名 → 色違い種名
+  for (const k of ALL_KINDS) {
+    const def = CONFIG.ENEMIES[k];
+    if (def.base) VARIANT_OF[def.base] = k;
+  }
   const MOVE_BEATS = 0.32;   // 移動トゥイーンの所要拍(見た目)
 
   function beatsToSec(beats) {
@@ -32,18 +41,21 @@ const Enemies = (() => {
   function solid(cx, cy) { return LevelGen.solidAt(level, cx, cy); }
   function easeOut(p) { const q = 1 - p; return 1 - q * q * q; }
 
-  // --- 初期化:E スポーンをシード乱数で6種に実体化 ---
-  function init(lv, rngFn) {
+  // --- 初期化:E スポーンをシード乱数で6種(+色違い)に実体化 ---
+  // variantRate: 基本種を選んだ後、同baseの色違いに置換する確率(章テーマ由来。省略時0)
+  function init(lv, rngFn, variantRate) {
     level = lv;
     list = []; bullets = []; bombs = []; effects = [];
     lastBeat = null; kills = 0;
     const rand = rngFn || Math.random;
+    const vRate = variantRate || 0;
     if (!lv || !lv.spawns) return;
     for (const s of lv.spawns) {
       if (s.type !== "E") continue;
       let ki = Math.floor(rand() * KINDS.length);
       if (ki >= KINDS.length) ki = KINDS.length - 1;
-      const kind = KINDS[ki];
+      let kind = KINDS[ki];
+      if (rand() < vRate && VARIANT_OF[kind]) kind = VARIANT_OF[kind]; // 色違いに差し替え
       const def = CONFIG.ENEMIES[kind];
       const interval = def.interval;
       const phase = interval > 0 ? Math.floor(rand() * interval) % interval : 0;
@@ -82,12 +94,13 @@ const Enemies = (() => {
   }
 
   // プレイヤーへダメージ(無敵中は Player.hurt が false を返す)。成立で1を返す。
-  function hurtPlayer(dmg, sourceTx) {
+  // opts.projectile … 弾によるダメージなら true(忍び装束のprojDefMulを適用させる)。
+  function hurtPlayer(dmg, sourceTx, opts) {
     const p = Player.pos();
     let sourceDir = 0;
     if (sourceTx > p.tx) sourceDir = 1;
     else if (sourceTx < p.tx) sourceDir = -1;
-    return Player.hurt(dmg, sourceDir) ? 1 : 0;
+    return Player.hurt(dmg, sourceDir, opts) ? 1 : 0;
   }
 
   // --- 1整数拍ぶんの行動(拍跨ぎごとに順に呼ばれる) ---
@@ -141,11 +154,13 @@ const Enemies = (() => {
   }
 
   // chase(バット):毎拍プレイヤーへ1タイル接近(横優先・飛行)。視界外なら待機。
+  // flee(ゴールドバット): プレイヤーから離れる方向へ動く逃走AI(距離・視界判定は同じ)。
   function stepChase(e, b, p) {
     if (!actsOn(e, b)) return;
-    const dx = p.tx - e.tx, dy = p.ty - e.ty;
+    let dx = p.tx - e.tx, dy = p.ty - e.ty;
     const vision = e.def.vision || 8;
     if (Math.abs(dx) + Math.abs(dy) > vision) return;
+    if (e.def.flee) { dx = -dx; dy = -dy; }
     if (dx !== 0) {
       const d = Math.sign(dx);
       if (!solid(e.tx + d, e.ty)) { e.dir = d; moveTo(e, e.tx + d, e.ty); return; }
@@ -157,11 +172,14 @@ const Enemies = (() => {
   }
 
   // knight(ナイト):行動拍にプレイヤーへ横接近(崖では止まる)。隣接なら次拍を攻撃予約。
+  // 静寂のスリッパ(stealth): 隣接しても一切反応しない(待機。移動も攻撃予約もしない)。
   function stepKnight(e, b, p) {
     if (e.pendingMelee) return; // 攻撃モーション中は動かない
     if (!actsOn(e, b)) return;
     const dx = p.tx - e.tx;
+    const stealthy = typeof Equip !== "undefined" && Equip.stats().stealth;
     if (Math.abs(dx) === 1 && p.ty === e.ty) {
+      if (stealthy) return; // 静寂のスリッパ:隣接しても反応しない
       // 隣接 → 向きを合わせ、次拍に攻撃(1拍前からテレグラフ)
       e.dir = Math.sign(dx);
       e.pendingMelee = { beat: b + 1, dir: e.dir };
@@ -207,9 +225,16 @@ const Enemies = (() => {
   }
 
   // bomber(ボマー):行動拍に自分のタイルへ爆弾設置し1タイル後退(壁なら前進)。
+  // bombMax(デスボマー=2): 自分が設置した爆弾がbombMax個未満のときだけ新規設置する。
   function stepBomber(e, b, p) {
     if (!actsOn(e, b)) return;
-    bombs.push({ tx: e.tx, ty: e.ty, fuse: e.def.bombFuse || 2, alive: true });
+    const maxBombs = e.def.bombMax || 1;
+    const owned = bombs.filter((bm) => bm.owner === e && bm.alive).length;
+    if (owned >= maxBombs) return; // 上限に達していれば設置しない(移動もしない)
+    bombs.push({
+      tx: e.tx, ty: e.ty, fuse: e.def.bombFuse || 2,
+      shape: e.def.bombShape || "cross", owner: e, alive: true,
+    });
     // プレイヤーと逆方向へ後退
     let back = -Math.sign(p.tx - e.tx);
     if (back === 0) back = -e.dir;
@@ -230,7 +255,7 @@ const Enemies = (() => {
         if (solid(cand, bl.ty)) { bl.alive = false; break; }
         nx = cand;
         if (nx === p.tx && bl.ty === p.ty) {
-          hits += hurtPlayer(1, nx - bl.dx); // 弾の進行方向へノックバック
+          hits += hurtPlayer(1, nx - bl.dx, { projectile: true }); // 弾ダメージ(忍び装束のprojDefMul対象)
           bl.alive = false; break;
         }
       }
@@ -244,7 +269,23 @@ const Enemies = (() => {
     return hits;
   }
 
-  // 爆弾の導火・爆発(十字1タイル)。プレイヤーにも敵にもダメージ。
+  // 爆弾の爆発範囲(cross=十字1タイル / square=3×3。デスボマーはsquare)。
+  function bombCells(bm) {
+    if (bm.shape === "square") {
+      const cells = [];
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) cells.push({ tx: bm.tx + dx, ty: bm.ty + dy });
+      }
+      return cells;
+    }
+    return [
+      { tx: bm.tx, ty: bm.ty },
+      { tx: bm.tx + 1, ty: bm.ty }, { tx: bm.tx - 1, ty: bm.ty },
+      { tx: bm.tx, ty: bm.ty + 1 }, { tx: bm.tx, ty: bm.ty - 1 },
+    ];
+  }
+
+  // 爆弾の導火・爆発。プレイヤーにも敵にもダメージ。
   function stepBombs(b) {
     let hits = 0;
     const p = playerTile();
@@ -252,12 +293,7 @@ const Enemies = (() => {
       if (!bm.alive) continue;
       bm.fuse--;
       if (bm.fuse > 0) continue;
-      // 爆発:十字範囲
-      const cells = [
-        { tx: bm.tx, ty: bm.ty },
-        { tx: bm.tx + 1, ty: bm.ty }, { tx: bm.tx - 1, ty: bm.ty },
-        { tx: bm.tx, ty: bm.ty + 1 }, { tx: bm.tx, ty: bm.ty - 1 },
-      ];
+      const cells = bombCells(bm);
       // 敵へダメージ
       damageAt(cells, 1);
       // プレイヤーへダメージ
@@ -289,6 +325,9 @@ const Enemies = (() => {
           e.alive = false;
           kills++;
           effects.push({ type: "die", x: e.tx, y: e.ty, t: 0, dur: 0.28, color: e.def.color });
+          // コインドロップ(フィーバー中は2倍。DESIGN §3/§7・Step7)
+          const dropN = (e.def.coinDrop || 0) * (feverActive ? 2 : 1);
+          if (dropN > 0 && typeof Items !== "undefined" && Items.spawnCoin) Items.spawnCoin(e.tx, e.ty, dropN);
         }
         out.push({ kind: e.kind, tx: e.tx, ty: e.ty, killed });
       }
@@ -296,6 +335,9 @@ const Enemies = (() => {
     if (out.length) list = list.filter((e) => e.alive);
     return out;
   }
+
+  // Game側から毎フレーム渡されるフィーバー状態(コインドロップ2倍の判定に使う)。
+  function setFever(v) { feverActive = !!v; }
 
   // 指定タイルの実体敵(透明ゴーストは対象外)。プレイヤー移動時の接触照会用。
   function enemyAt(tx, ty) {
@@ -426,7 +468,7 @@ const Enemies = (() => {
     }
 
     g.fillStyle = e.def.color;
-    switch (e.kind) {
+    switch (e.def.base || e.kind) { // 色違いは基本種の形を流用(色はe.def.colorで差し替え済み)
       case "slime": drawSlime(g, cx, cy, rr); break;
       case "bat":   drawBat(g, cx, cy, rr, e.dir); break;
       case "knight": drawKnight(g, cx, cy, rr, e.dir); break;
@@ -584,7 +626,8 @@ const Enemies = (() => {
   }
 
   return {
-    init, update, draw, damageAt, enemyAt,
+    init, update, draw, damageAt, enemyAt, setFever,
+    spawn: _debugSpawn, // ボスの召喚など動的スポーンの正式API(kind, tx, ty[, phase])
     get count() { return list.length; },
     get bulletCount() { return bullets.length; },
     get bombCount() { return bombs.length; },
@@ -592,5 +635,6 @@ const Enemies = (() => {
     _debugSpawn,
     _list() { return list; },
     _bullets() { return bullets; },
+    _bombs() { return bombs; },
   };
 })();

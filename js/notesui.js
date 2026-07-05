@@ -6,6 +6,7 @@
 const NotesUI = (() => {
   const WINDOW_BEATS = 8; // 表示する先読み拍数(2小節=8拍)
   const POP_MS = 500;     // 判定ポップの表示時間
+  const NOTE_SCALE = 1.5; // ノーツ表示倍率(調整値)
 
   let pop = null; // { verdict, diffMs, born } bornはperformance.now
 
@@ -69,12 +70,12 @@ const NotesUI = (() => {
         if (isHalf) {
           // 8分ノーツ:小さめ・薄め
           const alpha = (0.22 + 0.4 * fade) * (sec.fever ? 1.2 : 1);
-          r = 6;
+          r = 6 * NOTE_SCALE;
           color = `rgba(200,210,235,${Math.min(1, alpha)})`;
         } else {
           const accent = Math.round(beat) % beatsPerBar === 0;
           const alpha = 0.35 + 0.65 * fade;
-          r = accent ? 15 : 10;
+          r = (accent ? 15 : 10) * NOTE_SCALE;
           if (sec.fever) {
             color = `rgba(255,210,120,${alpha})`;
           } else {

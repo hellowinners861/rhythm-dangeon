@@ -22,10 +22,27 @@ const Player = (() => {
   // キャラ定義・戦闘状態
   let charId = "rat";
   let char = null;
-  let hp = 3, maxHp = 3;
+  let hp = 3, maxHp = 3;     // 装備のdefMulで0.5刻みが出るため小数対応
+  let shield = 0;            // シールドベスト等。1以上なら被弾ダメージを1回無効化
+  let revivedUsed = false;   // 不死鳥の羽衣の復活を使い切ったか(1ステージ1回)
   let invulnUntilBeat = 0;   // この拍まで無敵(拍基準)
   let reloadUntilBeat = 0;   // ガンナー:この拍までビーム不可
   let hurtCount = 0;         // 被弾成立の累計(ゲーム側が演出検出に使う)
+  let boostUntilBeat = -1e9; // ブーストアイテムの効果終了拍(拾得アイテム・DESIGN §8・Step7)
+  let boostTrail = [];       // ブースト中の残像演出用の直近描画位置履歴(演出のみ)
+
+  // game.js から毎入力時に渡される戦闘コンテキスト(PlayerからGameは参照しない)
+  let combatCtx = { combo: 0, fever: false };
+
+  // Equip未ロード時のフォールバック(全て無効果)
+  const EMPTY_STATS = {
+    defMul: 1, projDefMul: 1, knockbackMul: 1, coinMul: 1,
+    maxHp: 0, atk: 0, atkPerfect: 0, feverReq: 0, goodWindow: 0, perfectWindow: 0,
+    shieldStart: 0, thorns: 0, jumpPlus: 0, airControlPlus: 0, magnet: 0, feverAtk: 0,
+    moveDist: 1, vampire: 0, comboAtkStep: 0, comboAtkMax: 0,
+    pierce: false, blast: false, feverLightning: false, revive: false,
+    stealth: false, missComboHalf: false, lavaImmune: false,
+  };
 
   // 横トゥイーン(全状態で共通。x を xEnd へイーズ)
   const xt = { from: 0, end: 0, t: 0, dur: 0.001, active: false };
@@ -52,6 +69,22 @@ const Player = (() => {
     return (Conductor && Conductor.running) ? Conductor.currentBeat() : 0;
   }
 
+  function getStats() {
+    return (typeof Equip !== "undefined") ? Equip.stats() : EMPTY_STATS;
+  }
+
+  // 攻撃タイルのダメージ解決。ザコ(Enemies)とボス(Boss)の両方へ当てる(DESIGN §10・Step8)。
+  // 戻り値は撃破座標つきの結果配列(game側のblast/vampire・撃破検出に使う)。
+  function dealDamage(tiles, atk) {
+    let out = [];
+    if (typeof Enemies !== "undefined") out = Enemies.damageAt(tiles, atk);
+    if (typeof Boss !== "undefined" && Boss.active) {
+      const br = Boss.damageAt(tiles, atk);
+      if (br && br.length) out = out.concat(br);
+    }
+    return out;
+  }
+
   function solid(cx, cy) {
     return LevelGen.solidAt(level, cx, cy);
   }
@@ -70,11 +103,16 @@ const Player = (() => {
     level = lv;
     charId = (cid && CONFIG.CHARACTERS[cid]) ? cid : "rat";
     char = CONFIG.CHARACTERS[charId];
-    maxHp = char.hp;
-    hp = char.hp;
+    const stats = getStats();
+    maxHp = char.hp + stats.maxHp;
+    hp = maxHp;
+    shield = stats.shieldStart;
+    revivedUsed = false;
     invulnUntilBeat = 0;
     reloadUntilBeat = -1e9; // 開始前(負の拍)でもビームを撃てるように十分過去にしておく
     hurtCount = 0;
+    boostUntilBeat = -1e9;
+    boostTrail = [];
 
     tx = level.startX;
     ty = level.startY;
@@ -111,28 +149,73 @@ const Player = (() => {
   }
 
   // 敵タイルへ「攻撃以外で」進入した際の接触ダメージ(移動はキャンセルしない)。
+  // とげの鎧(thorns): 接触した敵へ反撃ダメージを返す(Enemies.damageAt利用)。
   function maybeTouch(d) {
     if (typeof Enemies === "undefined") return;
     const e = Enemies.enemyAt(tx, ty);
-    if (e) hurt(e.def.dmg, d);
+    if (!e) return;
+    hurt(e.def.dmg, d);
+    const stats = getStats();
+    if (stats.thorns > 0) Enemies.damageAt([{ tx: e.tx, ty: e.ty }], stats.thorns);
   }
 
   // --- 行動(判定成立=PERFECT/GOOD の拍でのみ game から呼ばれる) ---
-  // opts.fever … フィーバー中(攻撃倍率)
+  // 戻り値: 攻撃時は Enemies.damageAt の結果配列([{kind,tx,ty,killed}])。それ以外は []。
+  // game側の blast/vampire 処理に使う(撃破座標が必要なため)。
   function act(type, verdict, opts) {
-    if (type === "attack") { doAttack(opts || {}); return; }
+    if (type === "attack") return doAttack(verdict) || [];
     if (type === "left" || type === "right") {
       const d = type === "right" ? 1 : -1;
       dir = d;
       if (airborne()) airControl(d);
       else groundMove(d);
-      return;
+      return [];
     }
-    if (type === "jump") { doJump(); return; }
+    if (type === "jump") { doJump(); return []; }
+    return [];
   }
 
-  // 接地時の前進ダッシュ(段差の自動駆け上がり/降りを含む)
+  // game.js から毎入力時に呼ばれる戦闘コンテキスト更新(コンボ数・フィーバー中か)。
+  // PlayerからGameを直接参照しないための一方向の受け渡し。
+  function setCombatContext(ctx) {
+    combatCtx.combo = (ctx && typeof ctx.combo === "number") ? ctx.combo : 0;
+    combatCtx.fever = !!(ctx && ctx.fever);
+  }
+
+  // 吸血の牙(vampire)等の回復。上限maxHpでクランプする。
+  function heal(amount) {
+    if (hp <= 0) return;
+    hp = Math.min(maxHp, hp + amount);
+  }
+
+  // シールド拾得アイテム。CONFIG.ITEMS.SHIELD_MAX を上限にクランプする(DESIGN §8・Step7)。
+  function addShield(n) {
+    const max = (typeof CONFIG !== "undefined" && CONFIG.ITEMS) ? CONFIG.ITEMS.SHIELD_MAX : 2;
+    shield = Math.min(max, shield + n);
+  }
+
+  // ブースト拾得アイテム。現在拍から beats 拍のあいだ移動距離2倍(羽の靴と重複しても最大値採用)。
+  function setBoost(beats) {
+    boostUntilBeat = curBeat() + beats;
+  }
+
+  // ブースト効果が有効か(1拍あたりの移動距離2倍)
+  function isBoosted() {
+    return (Conductor && Conductor.running) && curBeat() < boostUntilBeat;
+  }
+
+  // HUD表示用の残り拍数(効果なしなら0)
+  function boostRemaining() {
+    if (!isBoosted()) return 0;
+    return Math.max(0, boostUntilBeat - curBeat());
+  }
+
+  // 接地時の前進ダッシュ(段差の自動駆け上がり/降りを含む)。
+  // 羽の靴(moveDist:2)またはブースト拾得アイテム中なら1拍で前方2タイル進む(重複しても最大値採用)。
+  // 段差処理・停止判定は1タイル目のみで行い、1タイル目で壁に当たればそこで停止する(2タイル目の駆け上がりは試みない)。
   function groundMove(d) {
+    const stats = getStats();
+    const dist = (stats.moveDist >= 2 || isBoosted()) ? 2 : 1;
     const moveSec = beatsToSec(P().MOVE_TWEEN_BEATS);
     const ntx = tx + d;
     const frontSolid = solid(ntx, ty);       // 進行先の体の高さ
@@ -152,18 +235,31 @@ const Player = (() => {
     }
     // 進行先が空き → 前進。着地の有無は移動完了時に判断
     tx = ntx;
+    maybeTouch(d);
+    // 2タイル目(羽の靴)。壁があればそこで停止(段差処理はしない)
+    if (dist >= 2 && !solid(tx + d, ty)) {
+      tx += d;
+      maybeTouch(d);
+    }
     startXTween(tx, moveSec);
     yt.active = false;
     state = "move";
-    maybeTouch(d);
   }
 
-  // 空中制御:横1タイルぶん描画目標をずらす(壁があれば成立扱いで無視)
+  // 空中制御:横方向に移動目標をずらす(バネブーツ/韋駄天足袋で1+airControlPlusタイル)。
+  // 壁があれば手前で止める(成立扱い)。
   function airControl(d) {
+    const stats = getStats();
+    const dist = 1 + stats.airControlPlus;
     const moveSec = beatsToSec(P().MOVE_TWEEN_BEATS);
-    const ntx = tx + d;
-    if (solid(ntx, ty)) return; // 壁 → 無視(成立扱い)
-    tx = ntx;
+    let reached = tx;
+    for (let i = 0; i < dist; i++) {
+      const nx = reached + d;
+      if (solid(nx, ty)) break;
+      reached = nx;
+    }
+    if (reached === tx) return; // 壁で完全に阻まれた → 無視(成立扱い)
+    tx = reached;
     startXTween(tx, moveSec);
     if (state === "fall") landY = computeLanding(ty); // 着地予定を更新
     maybeTouch(d);
@@ -171,9 +267,11 @@ const Player = (() => {
 
   function doJump() {
     if (airborne()) return; // 接地時のみ
+    const stats = getStats();
+    const riseTiles = P().JUMP_RISE_TILES + stats.jumpPlus; // うさぎの靴/韋駄天足袋
     // 頭上の空きぶんだけ上昇(天井があれば手前まで)
-    let rise = P().JUMP_RISE_TILES;
-    for (let i = 1; i <= P().JUMP_RISE_TILES; i++) {
+    let rise = riseTiles;
+    for (let i = 1; i <= riseTiles; i++) {
       if (solid(tx, ty - i)) { rise = i - 1; break; }
     }
     const peak = ty - rise;
@@ -186,31 +284,54 @@ const Player = (() => {
   }
 
   // --- 攻撃(キャラ固有) ---
-  function attackPower(opts) {
-    let a = char.atk;
-    if (opts && opts.fever) a = Math.ceil(a * CONFIG.COMBAT.FEVER_ATK_MUL);
+  // 攻撃力を1関数に集約(DESIGN §9 Step6):
+  //   基礎atk + 装備atk + (PERFECT時)atkPerfect + (フィーバー中)feverAtk + コンボ本数ボーナス。
+  //   フィーバー倍率(FEVER_ATK_MUL)はその合計へ最後に乗算して切り上げる。
+  function atkTotal(verdict) {
+    const stats = getStats();
+    let a = char.atk + stats.atk;
+    if (verdict === "PERFECT") a += stats.atkPerfect;
+    if (combatCtx.fever) a += stats.feverAtk;
+    if (stats.comboAtkStep > 0) {
+      a += Math.min(stats.comboAtkMax, Math.floor(combatCtx.combo / stats.comboAtkStep));
+    }
+    if (combatCtx.fever) a = Math.ceil(a * CONFIG.COMBAT.FEVER_ATK_MUL);
     return a;
   }
 
-  function doAttack(opts) {
-    if (char.type === "tackle") doTackle(opts);
-    else if (char.type === "sword") doSword(opts);
-    else if (char.type === "beam") doBeam(opts);
+  // 戻り値: Enemies.damageAt の結果配列(撃破座標を含む。game側のblast/vampireで使う)
+  function doAttack(verdict) {
+    if (char.type === "tackle") return doTackle(verdict);
+    if (char.type === "sword") return doSword(verdict);
+    if (char.type === "beam") return doBeam(verdict);
+    return [];
   }
 
   // ラット:前方 tackleTiles へ突進。経路上の敵に順次ダメージ。生存敵の手前で停止。
-  function doTackle(opts) {
-    const atk = attackPower(opts);
+  // 貫通レンズ(pierce): 生存敵に当たっても1体までは通り抜けて先へ進める。
+  function doTackle(verdict) {
+    const atk = atkTotal(verdict);
+    const stats = getStats();
     const tiles = char.tackleTiles || 2;
     let reached = tx;
+    let piercedUsed = false;
+    const results = [];
     for (let i = 0; i < tiles; i++) {
       const nx = reached + dir;
       if (solid(nx, ty)) break;                    // 壁 → 手前まで
+      // ボス占有タイルは大きな壁のように扱う:ダメージを与えて手前で停止(通り抜けない)。
+      if (typeof Boss !== "undefined" && Boss.active && Boss.occupies(nx, ty)) {
+        const res = Boss.damageAt([{ tx: nx, ty }], atk);
+        results.push(...res);
+        break;
+      }
       const e = (typeof Enemies !== "undefined") ? Enemies.enemyAt(nx, ty) : null;
       if (e) {
         const res = Enemies.damageAt([{ tx: nx, ty }], atk);
+        results.push(...res);
         const killed = res.some((r) => r.killed);
         if (killed) { reached = nx; continue; }    // 倒した → 通り抜ける
+        if (stats.pierce && !piercedUsed) { piercedUsed = true; reached = nx; continue; } // 貫通(1体まで)
         break;                                     // 生存 → 手前で停止(すり抜けない)
       }
       reached = nx;
@@ -226,44 +347,67 @@ const Player = (() => {
       }
     }
     attack = { t: 0, dur: 0.18, dir, type: "tackle", beamEndTx: 0 };
+    return results;
   }
 
   // ソードマン:前方1タイル(+その頭上1タイル)へ攻撃。移動なし。
-  function doSword(opts) {
-    const atk = attackPower(opts);
+  // 貫通レンズ(pierce): 前方2タイル目(+頭上)まで判定を広げる。
+  function doSword(verdict) {
+    const atk = atkTotal(verdict);
+    const stats = getStats();
     const tiles = [{ tx: tx + dir, ty }, { tx: tx + dir, ty: ty - 1 }];
-    if (typeof Enemies !== "undefined") Enemies.damageAt(tiles, atk);
+    if (stats.pierce) tiles.push({ tx: tx + dir * 2, ty }, { tx: tx + dir * 2, ty: ty - 1 });
+    const results = dealDamage(tiles, atk);
     attack = { t: 0, dur: 0.2, dir, type: "sword", beamEndTx: 0 };
+    return results;
   }
 
   // ガンナー:前方直線(壁まで)を貫通攻撃。reloadBeats の間は攻撃不可(移動は可)。
-  function doBeam(opts) {
+  // 貫通レンズ(pierce): ビームは元々直線上の敵全てを貫通しているため追加効果なし。
+  function doBeam(verdict) {
     if (curBeat() < reloadUntilBeat) {
       attack = { t: 0, dur: 0.12, dir, type: "beamfail", beamEndTx: tx }; // 不発
-      return;
+      return [];
     }
-    const atk = attackPower(opts);
+    const atk = atkTotal(verdict);
     const tiles = [];
     let cx = tx + dir;
     while (!solid(cx, ty) && cx >= 0 && cx < level.w) { tiles.push({ tx: cx, ty }); cx += dir; }
-    if (typeof Enemies !== "undefined") Enemies.damageAt(tiles, atk);
+    const results = dealDamage(tiles, atk);
     reloadUntilBeat = curBeat() + (char.reloadBeats || 1);
     attack = { t: 0, dur: 0.16, dir, type: "beam", beamEndTx: cx - dir };
+    return results;
   }
 
   // --- 被弾 ---
   // sourceDir … 攻撃源の方向(+1=右 / -1=左 / 0=同タイル)。ノックバックは逆方向。
-  function hurt(dmg, sourceDir) {
+  // opts.projectile … 敵の弾によるダメージなら true(忍び装束のprojDefMulを適用)。
+  function hurt(dmg, sourceDir, opts) {
     if (hp <= 0) return false;
     if (isInvulnerable()) return false;
-    hp -= dmg;
+    const stats = getStats();
+
+    let d = dmg;
+    if (opts && opts.projectile) d *= stats.projDefMul;
+    d *= stats.defMul;
+
+    // シールドが1以上ならこの被弾を消費して無効化(ダメージ0・ノックバックなし)
+    if (shield > 0) {
+      shield -= 1;
+      invulnUntilBeat = curBeat() + CONFIG.COMBAT.INVULN_BEATS;
+      hurtCount++;
+      return true;
+    }
+
+    hp -= d;
     if (hp < 0) hp = 0;
 
-    // ノックバック(壁なら0)
+    // ノックバック(knockbackMulで距離を調整。0なら無し)
     let kb = -Math.sign(sourceDir || 0);
     if (kb === 0) kb = -dir;
+    const kbTiles = Math.round(CONFIG.COMBAT.KNOCKBACK_TILES * stats.knockbackMul);
     let moved = false;
-    for (let i = 0; i < CONFIG.COMBAT.KNOCKBACK_TILES; i++) {
+    for (let i = 0; i < kbTiles; i++) {
       const nx = tx + kb;
       if (solid(nx, ty)) break;
       tx = nx; moved = true;
@@ -278,6 +422,13 @@ const Player = (() => {
     }
     invulnUntilBeat = curBeat() + CONFIG.COMBAT.INVULN_BEATS;
     hurtCount++;
+
+    // 不死鳥の羽衣(revive): HP0になった時、1ステージ1回だけHP1で復活+シールド1
+    if (hp <= 0 && stats.revive && !revivedUsed) {
+      revivedUsed = true;
+      hp = 1;
+      shield = Math.max(shield, 1);
+    }
     return true;
   }
 
@@ -334,6 +485,14 @@ const Player = (() => {
       if (!xt.active) x = tx;
       y = ty;
     }
+
+    // ブースト中の残像演出(描画専用。直近数フレームぶんの位置を保持しフェード表示する)
+    if (isBoosted()) {
+      boostTrail.push({ x, y });
+      if (boostTrail.length > 5) boostTrail.shift();
+    } else if (boostTrail.length) {
+      boostTrail.length = 0;
+    }
   }
 
   // --- 描画(cam.x, cam.y はタイル単位で画面中央に映すワールド座標) ---
@@ -369,6 +528,21 @@ const Player = (() => {
       g.moveTo(cx + attack.dir * r, cy);
       g.lineTo(ex + attack.dir * TILE * 0.5, cy);
       g.stroke();
+      g.globalAlpha = 1;
+    }
+
+    // ブースト中の残像(古い位置ほど薄く・体より先に描く)
+    if (boostTrail.length > 1) {
+      for (let i = 0; i < boostTrail.length - 1; i++) {
+        const tp = boostTrail[i];
+        const tcx = (tp.x - cam.x) * TILE + VW / 2;
+        const tcy = (tp.y - cam.y) * TILE + VH / 2;
+        g.globalAlpha = ((i + 1) / boostTrail.length) * 0.3;
+        g.fillStyle = char.color;
+        g.beginPath();
+        g.arc(tcx, tcy, r * 0.85, 0, Math.PI * 2);
+        g.fill();
+      }
       g.globalAlpha = 1;
     }
 
@@ -465,8 +639,10 @@ const Player = (() => {
 
   return {
     init, act, update, draw, pos, hurt, isInvulnerable, _debugSetTile,
+    setCombatContext, heal, addShield, setBoost, isBoosted, boostRemaining,
     get hp() { return hp; },
     get maxHp() { return maxHp; },
+    get shield() { return shield; },
     get charId() { return charId; },
     get charName() { return char ? char.name : ""; },
     get hurtCount() { return hurtCount; },

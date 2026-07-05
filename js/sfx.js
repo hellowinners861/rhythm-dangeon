@@ -88,6 +88,22 @@ const SFX = (() => {
     }
   }
 
+  // コイン回収音。判定音(judge)とは別の軽い上昇音。
+  function coin() {
+    const now = ctx.currentTime;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = "square";
+    o.frequency.setValueAtTime(1320, now);
+    o.frequency.exponentialRampToValueAtTime(1980, now + 0.07);
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.exponentialRampToValueAtTime(0.2, now + 0.015);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + 0.11);
+    o.connect(g).connect(seGain);
+    o.start(now);
+    o.stop(now + 0.13);
+  }
+
   // 音量設定(0..1)。bgm/se いずれか未指定なら据え置き。
   function setVolume(bgm, se) {
     if (typeof bgm === "number") bgmGain.gain.value = bgm;
@@ -111,5 +127,5 @@ const SFX = (() => {
     return src;
   }
 
-  return { ctx, resume, click, judge, setVolume, playBuffer, bgmGain, seGain };
+  return { ctx, resume, click, judge, coin, setVolume, playBuffer, bgmGain, seGain };
 })();
