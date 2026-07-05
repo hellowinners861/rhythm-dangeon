@@ -153,8 +153,10 @@
 - 出撃準備画面でつけ外し自由。**「なし」も選択可能**(全部位)
 - 各装備は「絵文字アイコン+名前+説明文+価格+効果データ」を持ち、`CONFIG.EQUIPMENT` に集約
 - 効果は固定の効果語彙(`defMul`被ダメ倍率 / `maxHp` / `atk` / `moveDist` / `jumpPlus` / `feverReq` / `coinMul` /
-  `goodWindow` / `perfectWindow` / `shieldStart` / `revive` / `thorns` / `knockbackImmune` / `magnet` など)の組合せで表現し、
-  効果の実装はエンジン側1箇所、アイテムはデータ追加のみとする
+  `goodWindow` / `perfectWindow` / `shieldStart` / `revive` / `thorns` / `knockbackMul` / `magnet` など)の組合せで表現し、
+  集計は `js/equip.js` の `Equip.stats()` に一元化。アイテムはデータ追加のみとする
+- 被ダメ倍率に対応するため **HPは内部小数**(ハートは半分単位で描画)
+- コインはクリアで全額、ゲームオーバーで半額を持ち帰る
 
 ### 頭(防御・判定系)
 | アイコン | 名前 | 効果 | 価格 |
@@ -289,13 +291,14 @@ const SONGS = [{
 ## 14. ファイル構成
 
 ```
-index.html        … エントリ。script読み込み順: config → sfx → save → conductor → input
+index.html        … エントリ。script読み込み順: config → sfx → save → equip → conductor → input
                     → levelgen → player → enemies → boss → items → notesui → home → songs/songs.js → game
 style.css         … 全スタイル(タッチUI含む)
 js/
   config.js       … CONFIG。判定窓・物理・キャラ・敵・装備・アイテム・章・経済など調整値を全集約
   sfx.js          … WebAudio効果音(判定音・ヒット音・コイン音)
   save.js         … localStorage セーブ/ロード(バージョン管理)
+  equip.js        … 装備効果の集計(Equip.stats())。効果適用のハブ
   conductor.js    … 音楽時計・拍スケジューラ・判定・較正
   input.js        … タッチ入力(ボタン配置・マルチタッチ)
   levelgen.js     … チャンクテンプレート+自動生成+ゴール距離算出
