@@ -98,6 +98,16 @@ const CONFIG = {
     SHIELD_MAX: 2,        // シールドの上限
     BOOST_BEATS: 16,       // ブースト:効果持続(拍)
     DROP_RATES: { heart: 0.4, shield: 0.3, boost: 0.3 },
+
+    // コイン額面4種(見た目・サイズ比は目安。r はタイルに対する半径比)
+    COIN_TIERS: [
+      { value: 50, r: 0.55, color: "#c86bff", ring: "#ffd54a", label: "50" }, // 特大・紫宝石風+金縁
+      { value: 10, r: 0.42, color: "#ffd54a", ring: "#fff3c0", label: "10" }, // 大・金
+      { value: 3,  r: 0.34, color: "#d8dce8", ring: "#ffffff", label: "3"  }, // 中・銀
+      { value: 1,  r: 0.26, color: "#d09a52", ring: "#e8c188", label: ""   }, // 小・銅(ラベルなし)
+    ],
+    // レベル生成のCマーカーの額面抽選(シード乱数・重み)
+    COIN_SPAWN_WEIGHTS: [ { value: 1, w: 60 }, { value: 3, w: 25 }, { value: 10, w: 13 }, { value: 50, w: 2 } ],
   },
 
   // 章テーマ(DESIGN §10)。見た目(背景・タイル色)と難度係数。進行システム自体はStep8。

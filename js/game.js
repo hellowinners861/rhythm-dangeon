@@ -1110,7 +1110,9 @@ const Game = (() => {
     g.fillStyle = "#9fb4ff";
     g.font = "bold 30px sans-serif";
     g.fillText(`ステージ ${selChapter}-${selStage} クリア`, VW / 2, 254);
-    const songTitle = (typeof SONGS !== "undefined" && SONGS[0]) ? SONGS[0].title : "";
+    // 曲名は選択中の曲(Conductor.currentSong)を参照。SONGS[0]固定だと2曲目選択時に誤表示になる
+    const curSong = (typeof Conductor !== "undefined" && Conductor.currentSong) ? Conductor.currentSong : ((typeof SONGS !== "undefined") ? SONGS[0] : null);
+    const songTitle = curSong ? curSong.title : "";
     if (songTitle) {
       g.fillStyle = "#aeb6d6";
       g.font = "24px sans-serif";

@@ -6,21 +6,22 @@ const SONGS = [
     id: "song01",
     title: "アダチレイ・アダチレイ",
     audio: "songs/song01.mp3",
-    bpm: 110,
+    bpm: 165,                     // ユーザー確認値(解析の110は3:2の下位候補だった)
     offset: 0.24,                 // 最初の1拍目までの秒数(実測)
     durationSec: 143.99,          // 参考値(実際はデコード結果を使う)
     bpmChanges: [],
+    // 165BPMでは8分(div:2)が秒5.5打となり実用不可のため全区間4分。サビはfeverで演出強化
     chart: [
-      { from: 0,   to: 16,  div: 1, mood: "intro"  },
-      { from: 16,  to: 48,  div: 1, mood: "verse"  },
-      { from: 48,  to: 96,  div: 2, mood: "chorus", fever: true },
-      { from: 96,  to: 124, div: 1, mood: "verse"  },
-      { from: 124, to: 144, div: 2, mood: "build"  },
-      { from: 144, to: 192, div: 2, mood: "chorus", fever: true },
-      { from: 192, to: 200, div: 0, mood: "break"  },
-      { from: 200, to: 204, div: 1, mood: "build"  },
-      { from: 204, to: 248, div: 2, mood: "chorus", fever: true },
-      { from: 248, to: 263, div: 1, mood: "outro"  },
+      { from: 0,   to: 24,  div: 1, mood: "intro"  },
+      { from: 24,  to: 72,  div: 1, mood: "verse"  },
+      { from: 72,  to: 144, div: 1, mood: "chorus", fever: true },
+      { from: 144, to: 188, div: 1, mood: "verse"  },
+      { from: 188, to: 216, div: 1, mood: "build"  },
+      { from: 216, to: 288, div: 1, mood: "chorus", fever: true },
+      { from: 288, to: 300, div: 0, mood: "break"  },
+      { from: 300, to: 308, div: 1, mood: "build"  },
+      { from: 308, to: 372, div: 1, mood: "chorus", fever: true },
+      { from: 372, to: 395, div: 1, mood: "outro"  },
     ],
   },
   {
