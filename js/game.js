@@ -28,6 +28,26 @@ const Game = (() => {
   let canvas, g;
   let scene = "title";
 
+  // タイトル背景の音符パーティクル(拍とは無関係にゆっくり漂う演出のみ。Step9)
+  // 位置は演出用の乱数シードから時刻の関数として求める(状態更新を持たない)。
+  const TITLE_PARTICLES = (() => {
+    const arr = [];
+    for (let i = 0; i < 18; i++) {
+      arr.push({
+        x: Math.random() * CONFIG.VIEW.W,
+        seedY: Math.random() * CONFIG.VIEW.H,
+        speed: 14 + Math.random() * 20,       // 下降速度(px/s)
+        driftAmp: 16 + Math.random() * 28,
+        driftRate: 0.25 + Math.random() * 0.35,
+        phase: Math.random() * Math.PI * 2,
+        size: 20 + Math.random() * 22,
+        glyph: Math.random() < 0.5 ? "♪" : "♫",
+        alpha: 0.2 + Math.random() * 0.3,
+      });
+    }
+    return arr;
+  })();
+
   // 統計(現在ステージ)
   let combo = 0;
   let taps = 0;
@@ -64,6 +84,9 @@ const Game = (() => {
   let hitstopUntil = 0;   // この時刻(performance.now)まで更新を止める(撃破演出)
   let feverWasActive = false; // フィーバー突入の瞬間検出(雷の笛用)
   let resultCoins = 0;    // リザルト/ゲームオーバーで持ち帰ったコイン(表示用)
+  let feverFlash = 0;     // フィーバー突入演出:画面全体の金色フラッシュの残り秒(Step9)
+  let goalDelay = 0;      // ゴール到達〜リザルト遷移までの紙吹雪演出の残り秒(Step9)
+  let confetti = [];      // ゴール到達演出の紙吹雪パーティクル(演出のみ・Math.random可・Step9)
 
   // 較正シーンの状態
   const calib = {
@@ -77,7 +100,8 @@ const Game = (() => {
   let lastFrameT = 0;
 
   // ストーリー(章間テキスト演出。DOMパネル。DESIGN §10・Step8)
-  const story = { pages: [], idx: 0, onDone: null, active: false };
+  // charIdx/charTimer/pageDone … 1文字送り演出の状態(Step9)
+  const story = { pages: [], idx: 0, onDone: null, active: false, charIdx: 0, charTimer: 0, pageDone: false };
 
   // DOM参照
   let el = {};
@@ -111,8 +135,11 @@ const Game = (() => {
     if (typeof Equip !== "undefined") Equip.refresh();
 
     // 楽曲を先読みロード(タイトルは「読み込み中…」表示)。失敗時もメトロノームで続行。
+    // 出撃準備で選択中の曲(SAVE.data.selectedSong)を読み込む。不正・未設定時はSONGS[0]にフォールバック。
     if (typeof SONGS !== "undefined" && SONGS.length > 0) {
-      Conductor.loadSong(SONGS[0]).then(() => { songReady = true; });
+      const sid = SAVE.data.selectedSong || "song01";
+      const initialSong = SONGS.find((s) => s.id === sid) || SONGS[0];
+      Conductor.loadSong(initialSong).then(() => { songReady = true; });
     }
     el.slider.min = String(-CONFIG.CALIBRATION.MANUAL_RANGE_MS);
     el.slider.max = String(CONFIG.CALIBRATION.MANUAL_RANGE_MS);
@@ -129,7 +156,8 @@ const Game = (() => {
         e.preventDefault();
         if (story.active) return; // ストーリー表示中はゲーム側のタップを無視
         if (scene === "title") startFromTitle();
-        else if (scene === "result" || scene === "gameover") onResultTap();
+        else if (scene === "result") onResultTap();
+        else if (scene === "gameover") onGameoverTap(e);
       },
       { passive: false }
     );
@@ -143,21 +171,25 @@ const Game = (() => {
       }, { passive: false });
     }
 
-    // シーンUIボタン(較正はオプション画面から入る)
+    // シーンUIボタン(較正はオプション画面から入る)。メニューボタンなのでSFX.uiを鳴らす(Step9)。
     el.btnCalib.addEventListener("pointerdown", (e) => {
       e.preventDefault();
+      SFX.ui();
       gotoCalibration();
     });
     el.btnBack.addEventListener("pointerdown", (e) => {
       e.preventDefault();
+      SFX.ui();
       gotoOptions();
     });
     el.btnRetry.addEventListener("pointerdown", (e) => {
       e.preventDefault();
+      SFX.ui();
       resetCalibCollection();
     });
     el.btnSave.addEventListener("pointerdown", (e) => {
       e.preventDefault();
+      SFX.ui();
       saveCalibration();
     });
     // スライダー:変更は即Conductorへ反映(手動調整は即保存)
@@ -265,6 +297,9 @@ const Game = (() => {
     restNow = false;
     feverWasActive = false;
     resultCoins = 0;
+    feverFlash = 0;
+    goalDelay = 0;
+    confetti = [];
   }
 
   // 「いざ!」で出撃準備からステージへ。常に新しいレベル・曲を頭から開始する。
@@ -412,19 +447,52 @@ const Game = (() => {
   };
 
   // ストーリーパネルを表示。pages=文字列配列。全ページ送り終えたら onDone を呼ぶ。
+  // 各ページは1文字ずつ表示する(Step9)。
   function showStory(pages, onDone) {
     if (!el.storyPanel || !pages || !pages.length) { if (onDone) onDone(); return; }
     story.pages = pages;
     story.idx = 0;
     story.onDone = onDone || null;
     story.active = true;
-    el.storyText.textContent = pages[0];
+    startStoryPageTyping();
     el.storyPanel.classList.remove("hidden");
   }
 
-  // ストーリーを1ページ進める。最後まで来たら閉じて onDone を呼ぶ。
+  // 現在ページの1文字送りを最初から開始する
+  function startStoryPageTyping() {
+    story.charIdx = 0;
+    story.charTimer = 0;
+    story.pageDone = false;
+    el.storyText.textContent = "";
+  }
+
+  // 毎フレーム呼ばれる1文字送りの進行(rAFのdtで駆動。演出のみ・拍計算とは無関係)。
+  function updateStory(dt) {
+    if (!story.active || story.pageDone) return;
+    story.charTimer += dt;
+    const interval = CONFIG.STORY.CHAR_INTERVAL_SEC;
+    const full = story.pages[story.idx];
+    while (story.charTimer >= interval && story.charIdx < full.length) {
+      story.charTimer -= interval;
+      story.charIdx++;
+    }
+    el.storyText.textContent = full.slice(0, story.charIdx);
+    if (story.charIdx >= full.length) story.pageDone = true;
+  }
+
+  // ストーリーのタップ処理:1回目は全文を即時表示、2回目(全文表示済み)で次ページへ進める。
+  // 最後のページなら閉じて onDone を呼ぶ。
   function advanceStory() {
     if (!story.active) return;
+    if (!story.pageDone) {
+      // 1回目のタップ:このページの全文を即時表示
+      const full = story.pages[story.idx];
+      story.charIdx = full.length;
+      el.storyText.textContent = full;
+      story.pageDone = true;
+      return;
+    }
+    // 2回目のタップ:次ページへ(最後なら閉じる)
     story.idx++;
     if (story.idx >= story.pages.length) {
       story.active = false;
@@ -434,12 +502,12 @@ const Game = (() => {
       if (cb) cb();
       return;
     }
-    el.storyText.textContent = story.pages[story.idx];
+    startStoryPageTyping();
   }
 
-  // リザルト/ゲームオーバーのタップ処理。ボスクリア後は撃破ストーリーを挟んでから出撃準備へ。
+  // リザルトのタップ処理。ボスクリア後は撃破ストーリーを挟んでから出撃準備へ。
   function onResultTap() {
-    if (scene === "result" && bossClearChapter > 0) {
+    if (bossClearChapter > 0) {
       const ci = bossClearChapter - 1;
       const pages = STORY.bossDefeat[ci];
       bossClearChapter = 0;
@@ -448,6 +516,48 @@ const Game = (() => {
     }
     bossClear = false;
     gotoReady();
+  }
+
+  // ゲームオーバー画面の2択ボタン矩形(論理座標VW×VH。renderGameoverと同じ値を使う)
+  function gameoverButtonRects() {
+    const w = 460, h = 78, gap = 40, y = VH - 150;
+    const x0 = VW / 2 - gap / 2 - w;
+    const x1 = VW / 2 + gap / 2;
+    return {
+      retry: { x: x0, y, w, h },
+      ready: { x: x1, y, w, h },
+    };
+  }
+  function inRect(px, py, r) {
+    return px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h;
+  }
+  // ポインタのクライアント座標をCanvas論理座標(VW×VH)へ変換
+  function toLogicalXY(e) {
+    const rect = canvas.getBoundingClientRect();
+    const lx = ((e.clientX - rect.left) / rect.width) * VW;
+    const ly = ((e.clientY - rect.top) / rect.height) * VH;
+    return { x: lx, y: ly };
+  }
+
+  // ゲームオーバー画面のタップ処理(2択: 同じ装備でリトライ(同seed) / 準備画面へ)。
+  function onGameoverTap(e) {
+    const pt = toLogicalXY(e);
+    const r = gameoverButtonRects();
+    if (inRect(pt.x, pt.y, r.retry)) {
+      SFX.ui();
+      retryGameoverStage();
+    } else if (inRect(pt.x, pt.y, r.ready)) {
+      SFX.ui();
+      gotoReady();
+    }
+  }
+
+  // ゲームオーバーからの同seedリトライ(既存のseed指定startLevelを流用。同じ装備・キャラのまま再挑戦)。
+  function retryGameoverStage() {
+    scene = "stage";
+    startLevel(curSeed);
+    startStageConductor();
+    applySceneUI();
   }
 
   // ゴール到達時にテレポート検証で使う所要拍(デバッグ用)
@@ -570,9 +680,11 @@ const Game = (() => {
       Player.setCombatContext({ combo, fever });
       const results = Player.act(type, res.verdict, {});
       handleAttackResults(results);
-      // フィーバー突入の瞬間を検出(雷の笛)
+      // フィーバー突入の瞬間を検出(雷の笛+金色フラッシュ+SFX)
       if (fever && !feverWasActive) {
         feverWasActive = true;
+        feverFlash = CONFIG.COMBO.FEVER_FLASH_SEC;
+        SFX.fever();
         if (stats && stats.feverLightning) triggerFeverLightning();
       } else if (!fever) {
         feverWasActive = false;
@@ -626,6 +738,9 @@ const Game = (() => {
     }
     lastFrameT = ts;
     if (dt > 0.1) dt = 0.1; // タブ復帰などの大ジャンプを抑制
+
+    // ストーリーの1文字送り(シーンに関係なく進行。DOM操作のみ)
+    updateStory(dt);
 
     // 撃破ヒットストップ中は更新を止める(rAF側の演出。拍計算には影響しない)
     if (scene === "stage" && performance.now() >= hitstopUntil) updateStage(dt);
@@ -687,7 +802,9 @@ const Game = (() => {
       hitstopUntil = performance.now() + CONFIG.COMBAT.HITSTOP_MS; // 軽いヒットストップ
     }
     if (missFlash > 0) missFlash = Math.max(0, missFlash - dt);
+    if (feverFlash > 0) feverFlash = Math.max(0, feverFlash - dt);
     if (shakeMag > 0) shakeMag = Math.max(0, shakeMag - 120 * dt);
+    updateConfetti(dt);
 
     // ゲームオーバー
     if (Player.isDead()) { gotoGameover(); return; }
@@ -710,13 +827,57 @@ const Game = (() => {
       return;
     }
 
-    // ゴール判定(同タイル)→ リザルトへ
-    if (!goalReached && p.tx === level.goalX && p.ty === level.goalY) {
+    // ゴール到達後:紙吹雪演出の待機中(1秒。DESIGN・Step9)。待ち終えたらリザルトへ。
+    if (goalReached) {
+      goalDelay -= dt;
+      if (goalDelay <= 0) gotoResult();
+      return;
+    }
+
+    // ゴール判定(同タイル)→ 紙吹雪演出を挟んでリザルトへ
+    if (p.tx === level.goalX && p.ty === level.goalY) {
       goalReached = true;
       goalBeat = currentBeatOrZero();
       // 曲が終わる前にゴールしたか(曲内クリアボーナス)。DESIGN §4
       songClear = Conductor.totalBeats > 0 && goalBeat <= Conductor.totalBeats;
-      gotoResult();
+      spawnConfetti();
+      goalDelay = CONFIG.STAGE.GOAL_DELAY_SEC;
+    }
+  }
+
+  // --- 紙吹雪パーティクル(ゴール到達演出。画面px座標・演出のみ。Math.random可) ---
+  function spawnConfetti() {
+    confetti = [];
+    const colors = ["#ffd54a", "#ff6b8a", "#7fd39b", "#7fb0ff", "#c85adf", "#ffffff"];
+    for (let i = 0; i < 46; i++) {
+      confetti.push({
+        x: Math.random() * VW,
+        y: -20 - Math.random() * 200,
+        vx: (Math.random() - 0.5) * 160,
+        vy: 220 + Math.random() * 180,
+        rot: Math.random() * Math.PI * 2,
+        vrot: (Math.random() - 0.5) * 8,
+        size: 8 + Math.random() * 10,
+        color: colors[Math.floor(Math.random() * colors.length)],
+      });
+    }
+  }
+  function updateConfetti(dt) {
+    if (!confetti.length) return;
+    for (const c of confetti) {
+      c.x += c.vx * dt;
+      c.y += c.vy * dt;
+      c.rot += c.vrot * dt;
+    }
+  }
+  function drawConfetti() {
+    for (const c of confetti) {
+      g.save();
+      g.translate(c.x, c.y);
+      g.rotate(c.rot);
+      g.fillStyle = c.color;
+      g.fillRect(-c.size / 2, -c.size / 3, c.size, c.size * 0.6);
+      g.restore();
     }
   }
 
@@ -771,22 +932,52 @@ const Game = (() => {
       // コンボフィーバー:画面縁が拍に同期して脈動発光(しきい値は装備で変動)
       if (combo >= feverThreshold()) renderComboFeverEdge();
       renderHUD();
-      // ボスHPバー(画面上部・フェーズ2で色変化)
+      // ボスHPバー(ボス戦中)/ステージ進行バー(通常時。画面上部中央。Step9)
       if (bossStage && bossTriggered && typeof Boss !== "undefined" && Boss.active) renderBossHP();
+      else renderStageProgress();
       if (missFlash > 0) {
         g.fillStyle = `rgba(255,60,80,${0.35 * (missFlash / 0.25)})`;
         g.fillRect(0, 0, VW, VH);
       }
+      // フィーバー突入の金色フラッシュ(Step9)
+      if (feverFlash > 0) {
+        g.fillStyle = `rgba(255,213,74,${0.5 * (feverFlash / CONFIG.COMBO.FEVER_FLASH_SEC)})`;
+        g.fillRect(0, 0, VW, VH);
+      }
+      // ゴール到達演出の紙吹雪(Step9)
+      if (confetti.length) drawConfetti();
     }
 
     if (DEBUG) renderDebug();
   }
 
-  function renderTitle() {
+  // タイトル背景の音符パーティクル(拍とは無関係。時刻の関数として描画するだけの演出)
+  function renderTitleParticles() {
+    const t = performance.now() / 1000;
     g.textAlign = "center";
+    g.textBaseline = "middle";
+    for (const p of TITLE_PARTICLES) {
+      const y = ((p.seedY + t * p.speed) % (VH + 60)) - 30;
+      const x = p.x + Math.sin(t * p.driftRate + p.phase) * p.driftAmp;
+      g.globalAlpha = p.alpha;
+      g.fillStyle = "#9fb4ff";
+      g.font = Math.round(p.size) + "px sans-serif";
+      g.fillText(p.glyph, x, y);
+    }
+    g.globalAlpha = 1;
+    g.textBaseline = "alphabetic";
+  }
+
+  function renderTitle() {
+    renderTitleParticles();
+    g.textAlign = "center";
+    // ロゴはゆっくり明滅(拍とは無関係。周期を長くして落ち着いた見た目に)
+    const logoBlink = 0.5 + 0.5 * Math.sin(performance.now() / 1400);
+    g.globalAlpha = 0.55 + 0.45 * logoBlink;
     g.fillStyle = "#ffffff";
     g.font = "bold 72px sans-serif";
     g.fillText("リズムダンジョン", VW / 2, VH / 2 - 40);
+    g.globalAlpha = 1;
     g.font = "36px sans-serif";
     if (!songReady) {
       // 楽曲デコード中は開始不可(タップ無効)
@@ -915,16 +1106,22 @@ const Game = (() => {
     g.font = "bold 110px sans-serif";
     g.fillText(bossClear ? "BOSS CLEAR!" : "CLEAR!", VW / 2, 210);
 
-    // クリアしたステージ(章-面)表記
+    // クリアしたステージ(章-面)表記+曲名(Step9)
     g.fillStyle = "#9fb4ff";
     g.font = "bold 30px sans-serif";
-    g.fillText(`ステージ ${selChapter}-${selStage} クリア`, VW / 2, 258);
+    g.fillText(`ステージ ${selChapter}-${selStage} クリア`, VW / 2, 254);
+    const songTitle = (typeof SONGS !== "undefined" && SONGS[0]) ? SONGS[0].title : "";
+    if (songTitle) {
+      g.fillStyle = "#aeb6d6";
+      g.font = "24px sans-serif";
+      g.fillText(`♪ ${songTitle}`, VW / 2, 284);
+    }
 
     // 曲内クリアボーナス(曲が終わる前にゴール)。DESIGN §4
     if (songClear) {
       g.fillStyle = "#5adf7a";
-      g.font = "bold 30px sans-serif";
-      g.fillText("♪ 曲内クリア! ♪", VW / 2, 292);
+      g.font = "bold 28px sans-serif";
+      g.fillText("♪ 曲内クリア! ♪", VW / 2, 314);
     }
 
     // 判定内訳
@@ -939,7 +1136,7 @@ const Game = (() => {
       ["獲得コイン", resultCoins, "#ffd54a"],
     ];
     g.font = "bold 40px sans-serif";
-    let y = 320;
+    let y = 344;
     for (const [label, val, col] of rows) {
       g.textAlign = "right";
       g.fillStyle = "#aeb6d6";
@@ -960,7 +1157,7 @@ const Game = (() => {
     g.globalAlpha = 1;
   }
 
-  // ゲームオーバー画面。成績を提示し、タップで同seedリトライ。
+  // ゲームオーバー画面。成績を提示し、2択(同じ装備でリトライ(同seed)/準備画面へ)を表示。Step9。
   function renderGameover() {
     g.fillStyle = "rgba(14,4,8,0.78)";
     g.fillRect(0, 0, VW, VH);
@@ -978,7 +1175,7 @@ const Game = (() => {
       ["獲得コイン", resultCoins, "#ffd54a"],
     ];
     g.font = "bold 40px sans-serif";
-    let y = 330;
+    let y = 300;
     for (const [label, val, col] of rows) {
       g.textAlign = "right";
       g.fillStyle = "#c6aeb6";
@@ -986,16 +1183,33 @@ const Game = (() => {
       g.textAlign = "left";
       g.fillStyle = col;
       g.fillText(String(val), VW / 2 + 30, y);
-      y += 56;
+      y += 52;
     }
 
+    // 2択ボタン(同じ装備でリトライ(同seed) / 準備画面へ)。ヒットテストは gameoverButtonRects と共通。
+    const r = gameoverButtonRects();
+    drawGameoverButton(r.retry, "同じ装備でリトライ", "#ffd54a", "#241800");
+    drawGameoverButton(r.ready, "準備画面へ", "#7fb0ff", "#0d1730");
+  }
+
+  // ゲームオーバーの選択ボタン描画(角丸矩形+中央テキスト)
+  function drawGameoverButton(rect, label, bg, fg) {
+    const rad = 14;
+    g.fillStyle = bg;
+    g.beginPath();
+    g.moveTo(rect.x + rad, rect.y);
+    g.arcTo(rect.x + rect.w, rect.y, rect.x + rect.w, rect.y + rect.h, rad);
+    g.arcTo(rect.x + rect.w, rect.y + rect.h, rect.x, rect.y + rect.h, rad);
+    g.arcTo(rect.x, rect.y + rect.h, rect.x, rect.y, rad);
+    g.arcTo(rect.x, rect.y, rect.x + rect.w, rect.y, rad);
+    g.closePath();
+    g.fill();
     g.textAlign = "center";
-    const blink = 0.5 + 0.5 * Math.sin(performance.now() / 350);
-    g.globalAlpha = 0.4 + 0.6 * blink;
-    g.fillStyle = "#ff9fb0";
-    g.font = "36px sans-serif";
-    g.fillText("タップで出撃準備へ", VW / 2, VH - 60);
-    g.globalAlpha = 1;
+    g.textBaseline = "middle";
+    g.fillStyle = fg;
+    g.font = "bold 30px sans-serif";
+    g.fillText(label, rect.x + rect.w / 2, rect.y + rect.h / 2);
+    g.textBaseline = "alphabetic";
   }
 
   // HPハート(左上)。maxHpぶんの枠を出し、残りHPを塗る。
@@ -1043,7 +1257,19 @@ const Game = (() => {
     g.fillText("💰" + n, ox, oy);
   }
 
-  // ブースト拾得アイテムの残り拍数(HUD左上・コインの下)。DESIGN §8・Step7
+  // 再生中の曲名(HUD左上・ハート/コインの下)。半透明・小フォントでHUDの邪魔をしない(改修バッチ)。
+  function drawSongNameHUD(ox, oy) {
+    const song = Conductor.currentSong;
+    if (!song) return;
+    g.textAlign = "left";
+    g.globalAlpha = 0.62;
+    g.fillStyle = "#aeb6d6";
+    g.font = "18px sans-serif";
+    g.fillText("♪ " + song.title, ox, oy);
+    g.globalAlpha = 1;
+  }
+
+  // ブースト拾得アイテムの残り拍数(HUD左上・曲名表示の下)。DESIGN §8・Step7
   function drawBoostHUD(ox, oy) {
     if (!Player.isBoosted || !Player.isBoosted()) return;
     g.textAlign = "left";
@@ -1110,11 +1336,37 @@ const Game = (() => {
     g.strokeRect(bx, by, barW, barH);
   }
 
+  // ステージ進行バー(画面上部中央。スタート→ゴールのプレイヤー位置)。左に「章-ステージ」表記。
+  // ボス戦中は renderBossHP に差し替わる(呼び出し元で分岐)。DESIGN §13・Step9
+  function renderStageProgress() {
+    if (!level) return;
+    const barW = VW * 0.42, barH = 18;
+    const bx = (VW - barW) / 2, by = 30;
+    // 章-ステージ表記(バーの左)
+    g.textAlign = "right";
+    g.fillStyle = "#9fb4ff";
+    g.font = "bold 22px sans-serif";
+    g.fillText(`${selChapter}-${selStage}`, bx - 14, by + barH - 2);
+    // 枠
+    g.fillStyle = "rgba(0,0,0,0.45)";
+    g.fillRect(bx - 2, by - 2, barW + 4, barH + 4);
+    // 進捗(スタート〜ゴールのタイルXから算出。拍計算は使わない)
+    const p = Player.pos();
+    const span = level.goalX - level.startX;
+    const ratio = span !== 0 ? Math.max(0, Math.min(1, (p.tx - level.startX) / span)) : 0;
+    g.fillStyle = "#7fd39b";
+    g.fillRect(bx, by, barW * ratio, barH);
+    g.strokeStyle = "rgba(255,255,255,0.6)";
+    g.lineWidth = 2;
+    g.strokeRect(bx, by, barW, barH);
+  }
+
   function renderHUD() {
     // 左上:HPハート、その下にコイン所持数、ブースト中はさらにその下に残り拍数
     drawHearts(24, 34);
     drawCoinsHUD(24, 70);
-    drawBoostHUD(24, 100);
+    drawSongNameHUD(24, 96);
+    drawBoostHUD(24, 124);
 
     // 右上:コンボ / タップ(小さく常時表示)
     g.textAlign = "right";

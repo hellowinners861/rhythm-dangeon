@@ -6,7 +6,7 @@
 const NotesUI = (() => {
   const WINDOW_BEATS = 8; // 表示する先読み拍数(2小節=8拍)
   const POP_MS = 500;     // 判定ポップの表示時間
-  const NOTE_SCALE = 1.5; // ノーツ表示倍率(調整値)
+  const NOTE_SCALE = 2.2; // ノーツ表示倍率(調整値・改修バッチで1.5→2.2)
 
   let pop = null; // { verdict, diffMs, born } bornはperformance.now
 
@@ -23,7 +23,8 @@ const NotesUI = (() => {
   // レーンとノーツを描画。cx,cy=判定点の中心、halfW=左右の流れる幅
   function draw(g, viewW, viewH) {
     const cx = viewW / 2;
-    const cy = viewH - 96;
+    // ノーツ2.2倍化で帯・判定点が大きくなった分、下部タッチボタンと被らないようやや上へ(改修バッチ)
+    const cy = viewH - 150;
     const halfW = Math.min(viewW * 0.42, 640);
     const beatsPerBar = CONFIG.METRONOME.BEATS_PER_BAR;
 
@@ -36,17 +37,18 @@ const NotesUI = (() => {
     }
 
     // レーン(帯)。fever区間は発光、休符区間は暗く。
+    // 帯の高さはノーツ拡大(NOTE_SCALE 2.2)に合わせて60→100へ拡大(改修バッチ)。
     g.save();
     if (curFever) {
       g.fillStyle = "rgba(255,210,120,0.10)";
-      g.fillRect(cx - halfW - 40, cy - 38, (halfW + 40) * 2, 76);
+      g.fillRect(cx - halfW - 40, cy - 58, (halfW + 40) * 2, 116);
       g.fillStyle = "rgba(255,220,150,0.14)";
     } else if (curRest) {
       g.fillStyle = "rgba(255,255,255,0.02)";
     } else {
       g.fillStyle = "rgba(255,255,255,0.06)";
     }
-    g.fillRect(cx - halfW - 30, cy - 30, (halfW + 30) * 2, 60);
+    g.fillRect(cx - halfW - 30, cy - 50, (halfW + 30) * 2, 100);
 
     // ノーツ:これから来る「グリッド点」を先読み描画。
     //   整数拍=通常ノーツ / 半拍(8分)=小さめ・薄めのノーツ(div=2区間のみ)。
@@ -91,18 +93,18 @@ const NotesUI = (() => {
       }
     }
 
-    // 判定点(◆)。fever区間は金色に発光。
+    // 判定点(◆)。fever区間は金色に発光。ノーツ拡大に合わせて1.5倍程度に(改修バッチ)。
     g.fillStyle = curFever ? "#ffe08a" : "#ffffff";
     g.save();
     g.translate(cx, cy);
     g.rotate(Math.PI / 4);
-    const s = 16;
+    const s = 24;
     g.fillRect(-s, -s, s * 2, s * 2);
     g.restore();
     g.strokeStyle = curFever ? "rgba(255,210,120,0.85)" : "rgba(255,255,255,0.5)";
-    g.lineWidth = curFever ? 4 : 2;
+    g.lineWidth = curFever ? 6 : 3;
     g.beginPath();
-    g.arc(cx, cy, curFever ? 30 : 26, 0, Math.PI * 2);
+    g.arc(cx, cy, curFever ? 45 : 39, 0, Math.PI * 2);
     g.stroke();
 
     // 判定ポップ

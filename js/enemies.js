@@ -137,10 +137,16 @@ const Enemies = (() => {
     hits += stepBombs(b);
 
     // 5) 接触判定(敵が動いた後・実体のみ)。プレイヤーと同じタイルの敵はダメージ。
+    //    とげの鎧(thorns): 敵側からの体当たり接触(ナイトの予約攻撃(1)の処理は除く)にも反撃する。
     const p2 = playerTile();
+    const eqStats = (typeof Equip !== "undefined") ? Equip.stats() : null;
     for (const e of list) {
       if (!e.alive || e.transparent) continue;
-      if (e.tx === p2.tx && e.ty === p2.ty) hits += hurtPlayer(e.def.dmg, e.tx);
+      if (e.tx === p2.tx && e.ty === p2.ty) {
+        const hit = hurtPlayer(e.def.dmg, e.tx);
+        hits += hit;
+        if (hit > 0 && eqStats && eqStats.thorns > 0) damageAt([{ tx: e.tx, ty: e.ty }], eqStats.thorns);
+      }
     }
     return hits;
   }
@@ -324,7 +330,16 @@ const Enemies = (() => {
         if (killed) {
           e.alive = false;
           kills++;
+          SFX.enemyDie();
           effects.push({ type: "die", x: e.tx, y: e.ty, t: 0, dur: 0.28, color: e.def.color });
+          // 小さな白い破片(3〜5個。演出のみ・Math.random可・Step9)
+          const shardN = 3 + Math.floor(Math.random() * 3);
+          for (let i = 0; i < shardN; i++) {
+            effects.push({
+              type: "shard", x: e.tx, y: e.ty, t: 0, dur: 0.3 + Math.random() * 0.14,
+              ang: Math.random() * Math.PI * 2, dist: 0.3 + Math.random() * 0.35,
+            });
+          }
           // コインドロップ(フィーバー中は2倍。DESIGN §3/§7・Step7)
           const dropN = (e.def.coinDrop || 0) * (feverActive ? 2 : 1);
           if (dropN > 0 && typeof Items !== "undefined" && Items.spawnCoin) Items.spawnCoin(e.tx, e.ty, dropN);
@@ -604,6 +619,15 @@ const Enemies = (() => {
       g.beginPath();
       g.arc(cx, cy, TILE * (0.15 + p * 0.2), 0, Math.PI * 2);
       g.fill();
+      g.globalAlpha = 1;
+    } else if (fx.type === "shard") {
+      // 撃破時の小さな白い破片(外側へ飛び散りながら縮小・フェード)
+      const dx = Math.cos(fx.ang) * fx.dist * p;
+      const dy = Math.sin(fx.ang) * fx.dist * p;
+      g.globalAlpha = 1 - p;
+      g.fillStyle = "#fff";
+      const s = TILE * 0.1 * (1 - p * 0.5);
+      g.fillRect(sx(fx.x + dx) - s / 2, sy(fx.y + dy) - s / 2, s, s);
       g.globalAlpha = 1;
     }
   }

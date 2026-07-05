@@ -215,6 +215,11 @@ html, body {
   flex-shrink: 0;
 }
 .launch-btn:active { background: #ffe08a; }
+.launch-btn:disabled {
+  background: rgba(255, 213, 74, 0.4);
+  color: rgba(36, 24, 0, 0.6);
+  cursor: default;
+}
 
 .ui-btn.small { min-height: 30px; font-size: 12px; padding: 5px 10px; }
 
@@ -308,6 +313,28 @@ html, body {
 }
 .equip-icon { font-size: 16px; width: 22px; text-align: center; flex-shrink: 0; }
 .equip-label { flex: 1; }
+
+/* ---- 曲選択(出撃準備。改修バッチ) ---- */
+.song-slots {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.song-slot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 2px solid transparent;
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.song-slot.selected { border-color: #ffd54a; }
+.song-name { flex: 1; }
+.song-bpm { font-size: 11px; color: #9fb4ff; white-space: nowrap; }
 
 /* ---- モーダル(装備選択/ショップ/確認ダイアログ) ---- */
 .overlay-modal {

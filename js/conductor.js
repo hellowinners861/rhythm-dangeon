@@ -31,6 +31,9 @@ const Conductor = (() => {
   let songLoaded = false; // buffer のデコードに成功したか
   let songMode = false;   // 現在楽曲モードで走っているか
 
+  // 曲バッファのキャッシュ(id→{buffer,totalBeats})。2回目以降のloadSongは再デコードしない(曲選択・Step9改修)。
+  const songCache = new Map();
+
   // 拍nが「実際に音が鳴る」ctx絶対時刻(較正適用前)。nは小数可(グリッド点用)。
   function beatTime(n) {
     return startTime + offset + n * 60 / bpm;
@@ -96,9 +99,17 @@ const Conductor = (() => {
   }
 
   // 楽曲(songs.js の要素)を読み込みデコードする。async。成功でtrue。
+  // 一度デコードした曲は songCache(id→{buffer,totalBeats})に保持し、2回目以降は再デコードしない(曲選択・Step9改修)。
   // 失敗時はコンソール警告し、呼び出し側はメトロノームへフォールバックする。
   async function loadSong(s) {
     song = s;
+    const cached = songCache.get(s.id);
+    if (cached) {
+      buffer = cached.buffer;
+      totalBeats = cached.totalBeats;
+      songLoaded = true;
+      return true;
+    }
     buffer = null;
     songLoaded = false;
     totalBeats = 0;
@@ -109,6 +120,7 @@ const Conductor = (() => {
       const beatSec = 60 / s.bpm;
       totalBeats = Math.floor((buffer.duration - s.offset) / beatSec);
       songLoaded = true;
+      songCache.set(s.id, { buffer, totalBeats });
       return true;
     } catch (e) {
       console.warn("楽曲ロード失敗(メトロノームにフォールバック):", e);
@@ -244,5 +256,6 @@ const Conductor = (() => {
     get songMode() { return songMode; },
     get songLoaded() { return songLoaded; },
     get totalBeats() { return totalBeats; },
+    get currentSong() { return song; },
   };
 })();

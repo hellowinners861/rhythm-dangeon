@@ -16,7 +16,11 @@ const CONFIG = {
   VIEW: { W: 1600, H: 900 },
 
   // コンボ/フィーバー。FEVER_COMBO以上でフィーバー(Step5以降で演出)
-  COMBO: { FEVER_COMBO: 16 },
+  // FEVER_FLASH_SEC: フィーバー突入時の画面フラッシュ演出の長さ(秒・Step9)
+  COMBO: { FEVER_COMBO: 16, FEVER_FLASH_SEC: 0.35 },
+
+  // ストーリーパネルの1文字送りの間隔(秒・Step9)
+  STORY: { CHAR_INTERVAL_SEC: 0.04 },
 
   // 1タイルの論理px(1600×900で横20タイルぶんの視界)
   TILE: 80,
@@ -28,6 +32,7 @@ const CONFIG = {
     JUMP_RISE_BEATS: 0.5,    // 上昇の所要拍
     GRAVITY_TILES: 22,       // 落下加速度(タイル/s^2)
     MAX_FALL_TILES: 14,      // 最大落下速度(タイル/s)
+    AIR_JUMPS: 1,            // 空中ジャンプ(2段ジャンプ)の追加可能回数。着地でリセット(改修バッチ)
   },
 
   // 追従カメラ(DESIGN §6)
@@ -47,6 +52,7 @@ const CONFIG = {
     SPAWN_RATE: { E: 0.8, C: 0.9, I: 0.7 },
     BOSS_RATE: 0.5,       // ボスステージの通常区間の長さ倍率(曲の約0.5周分。DESIGN §10)
     ARENA_W: 24,          // ボスアリーナ幅(タイル)
+    GOAL_DELAY_SEC: 1.0,  // ゴール到達〜リザルト遷移までの紙吹雪演出の待機秒数(Step9)
   },
 
   // プレイアブルキャラ(DESIGN §5)。type=攻撃方式。色は描画プレースホルダ。
@@ -79,7 +85,7 @@ const CONFIG = {
     // --- 色違い6種(DESIGN §7・強化版)。base=元種キー。enemies.js側のAI関数へ渡すフラグのみ最小追加。
     redslime:    { name: "レッドスライム", base: "slime",  hp: 2, dmg: 1, interval: 1, ai: "patrol",  color: "#e0473f", coinDrop: 2 },
     goldbat:     { name: "ゴールドバット", base: "bat",    hp: 1, dmg: 1, interval: 1, ai: "chase", flee: true, fly: true, color: "#ffd54a", vision: 8, coinDrop: 10 },
-    blackknight: { name: "ブラックナイト", base: "knight", hp: 4, dmg: 2, interval: 2, ai: "knight",  color: "#1c1c22", coinDrop: 2 },
+    blackknight: { name: "ブラックナイト", base: "knight", hp: 4, dmg: 1.5, interval: 2, ai: "knight",  color: "#1c1c22", coinDrop: 2 },
     sniper:      { name: "スナイパー",     base: "gunner", hp: 1, dmg: 1, interval: 2, ai: "shooter", color: "#3f6fe0", bulletSpeed: 2, coinDrop: 2 },
     wraith:      { name: "怨霊",           base: "ghost",  hp: 1, dmg: 1, interval: 2, ai: "ghost",   fly: true, color: "rgba(224,90,90,0.72)", vision: 12, coinDrop: 2 },
     deathbomber: { name: "デスボマー",     base: "bomber", hp: 2, dmg: 1, interval: 3, ai: "bomber",  color: "#16161a", bombFuse: 2, bombMax: 2, bombShape: "square", coinDrop: 2 },
@@ -161,6 +167,7 @@ const CONFIG = {
   // ボス3種(章ごとに固定・DESIGN §7/§10・Step8)。
   // hp=「残り曲周回数×想定ヒットレート」の概算(バランスはStep9)。dmg=攻撃/接触ダメージ。
   // coinBonus=撃破ボーナスコイン。詳細な攻撃パターン(拍数・弾速・召喚数・サイズ)は js/boss.js の DATA に集約。
+  // Step9時点では現状維持。実プレイでの強さ調整はユーザーのプレイテストのフィードバック待ち。
   BOSSES: {
     silencer:    { name: "オオコウモリ サイレンサー",     hp: 80,  dmg: 1, coinBonus: 100 },
     beatcrusher: { name: "鋼鉄ゴーレム ビートクラッシャー", hp: 200, dmg: 1, coinBonus: 300 },

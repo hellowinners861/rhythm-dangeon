@@ -187,6 +187,7 @@ const Boss = (() => {
       boss.dashDir = goLeft ? 1 : -1; // 逆側へ突進する
       moveAnchor(nx, d.airRow);
       boss.telegraph = "dash";
+      SFX.telegraph(); // 予兆の開始(この位置でのみ1回)
     } else if (pos === 9) {
       // 突進の高さをプレイヤーに合わせる
       const pr = playerTile().ty;
@@ -247,6 +248,7 @@ const Boss = (() => {
         if (dir !== 0) { boss.dir = dir; moveAnchor(boss.tx + dir, boss.ty); }
       }
     } else if (pos === 4 || pos === 5) {
+      if (pos === 4) SFX.telegraph(); // 予兆の開始(この位置でのみ1回)
       boss.telegraph = "slam";
     } else if (pos === 6) {
       boss.telegraph = null;
@@ -254,6 +256,7 @@ const Boss = (() => {
     } else if (pos === 7) {
       if (p2) spawnShockwaves();       // phase2: 衝撃波2連
     } else if (pos === 12 || pos === 13) {
+      if (pos === 12) SFX.telegraph(); // 予兆の開始(この位置でのみ1回)
       boss.telegraph = "jump";
       boss.liftTarget = 2.4;           // 描画上ジャンプで持ち上がる
     } else if (pos === 14) {
@@ -303,6 +306,7 @@ const Boss = (() => {
       const dir = Math.sign(pc - Math.round(bossCenterCol()));
       if (dir !== 0 && pos % 2 === 0) { boss.dir = dir; moveAnchor(boss.tx + dir, boss.ty); }
     } else if (pos >= 5 && pos <= 8) {
+      if (pos === 5) SFX.telegraph();  // 予兆の開始(この位置でのみ1回)
       boss.telegraph = "devour";       // 音喰らいテレグラフ(4拍)
     } else if (pos === 9) {
       boss.telegraph = null;
@@ -389,6 +393,7 @@ const Boss = (() => {
           boss.deathBeat = Math.floor(curBeat());
           boss.telegraph = null;
           killed = true;
+          SFX.bossDie();
         }
         return [{ kind: "boss", boss: true, tx: boss.tx, ty: boss.ty, killed }];
       }

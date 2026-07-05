@@ -74,7 +74,7 @@ const Items = (() => {
       else if (kind === "boost" && Player.setBoost) Player.setBoost(CONFIG.ITEMS.BOOST_BEATS);
     }
     effects.push({ x: tx, y: ty, t: 0, dur: 0.4, icon: ICONS[kind] });
-    if (typeof SFX !== "undefined" && SFX.coin) SFX.coin(); // 軽い上昇音を流用(コインと音違いは不要)
+    if (typeof SFX !== "undefined" && SFX.pickup) SFX.pickup(); // コインとは別音色の取得音(Step9)
   }
 
   // 毎フレーム更新:プレイヤーのタイル(+magnet半径以内)のコインを回収する。

@@ -104,6 +104,225 @@ const SFX = (() => {
     o.stop(now + 0.13);
   }
 
+  // ジャンプ音。短い上昇スイープ(判定成立時のみ呼ばれる。player.js)
+  // high=true で空中ジャンプ(2段ジャンプ)用に少し高いピッチにする(改修バッチ・Step9)
+  function jump(high) {
+    const now = ctx.currentTime;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = "sine";
+    o.frequency.setValueAtTime(high ? 660 : 440, now);
+    o.frequency.exponentialRampToValueAtTime(high ? 1320 : 880, now + 0.12);
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.exponentialRampToValueAtTime(0.28, now + 0.015);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + 0.14);
+    o.connect(g).connect(seGain);
+    o.start(now);
+    o.stop(now + 0.16);
+  }
+
+  // ダッシュ音(移動)。短いノイズ系のシュッ(判定成立時のみ呼ばれる。player.js)
+  function dash() {
+    const now = ctx.currentTime;
+    const src = ctx.createBufferSource();
+    src.buffer = getNoise();
+    const hp = ctx.createBiquadFilter();
+    hp.type = "highpass";
+    hp.frequency.value = 2200;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.22, now);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + 0.08);
+    src.connect(hp).connect(g).connect(seGain);
+    src.start(now);
+    src.stop(now + 0.09);
+  }
+
+  // アイテム取得音(コインとは別の音色。二音の上昇チャイム)
+  function pickup() {
+    const now = ctx.currentTime;
+    const notes = [{ f: 988, t: 0 }, { f: 1480, t: 0.07 }];
+    for (const n of notes) {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = "sine";
+      o.frequency.value = n.f;
+      const st = now + n.t;
+      g.gain.setValueAtTime(0.0001, st);
+      g.gain.exponentialRampToValueAtTime(0.26, st + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.0001, st + 0.14);
+      o.connect(g).connect(seGain);
+      o.start(st);
+      o.stop(st + 0.16);
+    }
+  }
+
+  // 被弾音。低い衝撃音(サブベース+ローパスノイズ)
+  function hurt() {
+    const now = ctx.currentTime;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = "sawtooth";
+    o.frequency.setValueAtTime(180, now);
+    o.frequency.exponentialRampToValueAtTime(60, now + 0.16);
+    g.gain.setValueAtTime(0.3, now);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + 0.2);
+    o.connect(g).connect(seGain);
+    o.start(now);
+    o.stop(now + 0.22);
+    const src = ctx.createBufferSource();
+    src.buffer = getNoise();
+    const lp = ctx.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.value = 400;
+    const ng = ctx.createGain();
+    ng.gain.setValueAtTime(0.25, now);
+    ng.gain.exponentialRampToValueAtTime(0.0001, now + 0.14);
+    src.connect(lp).connect(ng).connect(seGain);
+    src.start(now);
+    src.stop(now + 0.16);
+  }
+
+  // 敵撃破音。ポップな破裂音(短い上昇矩形波)
+  function enemyDie() {
+    const now = ctx.currentTime;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = "square";
+    o.frequency.setValueAtTime(180, now);
+    o.frequency.exponentialRampToValueAtTime(720, now + 0.08);
+    g.gain.setValueAtTime(0.26, now);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + 0.1);
+    o.connect(g).connect(seGain);
+    o.start(now);
+    o.stop(now + 0.12);
+  }
+
+  // ボス予兆音。不穏な短い不協和音(半音違いの2音を重ねる)
+  function telegraph() {
+    const now = ctx.currentTime;
+    const freqs = [220, 233.08];
+    for (const f of freqs) {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = "sawtooth";
+      o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, now);
+      g.gain.exponentialRampToValueAtTime(0.18, now + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + 0.14);
+      o.connect(g).connect(seGain);
+      o.start(now);
+      o.stop(now + 0.16);
+    }
+  }
+
+  // ボス撃破音。長めの下降+爆発ノイズ
+  function bossDie() {
+    const now = ctx.currentTime;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = "sawtooth";
+    o.frequency.setValueAtTime(600, now);
+    o.frequency.exponentialRampToValueAtTime(40, now + 0.9);
+    g.gain.setValueAtTime(0.32, now);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + 1.0);
+    o.connect(g).connect(seGain);
+    o.start(now);
+    o.stop(now + 1.05);
+    const src = ctx.createBufferSource();
+    src.buffer = getNoise();
+    src.loop = true;
+    const lp = ctx.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.setValueAtTime(2000, now);
+    lp.frequency.exponentialRampToValueAtTime(200, now + 0.9);
+    const ng = ctx.createGain();
+    ng.gain.setValueAtTime(0.3, now);
+    ng.gain.exponentialRampToValueAtTime(0.0001, now + 0.9);
+    src.connect(lp).connect(ng).connect(seGain);
+    src.start(now);
+    src.stop(now + 0.95);
+  }
+
+  // フィーバー突入音。上昇アルペジオ(4音)
+  function fever() {
+    const now = ctx.currentTime;
+    const freqs = [523.25, 659.25, 783.99, 1046.5]; // C5,E5,G5,C6
+    freqs.forEach((f, i) => {
+      const st = now + i * 0.06;
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = "triangle";
+      o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, st);
+      g.gain.exponentialRampToValueAtTime(0.28, st + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.0001, st + 0.16);
+      o.connect(g).connect(seGain);
+      o.start(st);
+      o.stop(st + 0.18);
+    });
+  }
+
+  // メニュー用の単音ヘルパ(startOffset秒後にfreqを鳴らす)。ui()の各kindで使い回す。
+  function uiTone(startOffset, freq, dur, peak, type) {
+    const st = ctx.currentTime + startOffset;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = type || "sine";
+    o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, st);
+    g.gain.exponentialRampToValueAtTime(peak, st + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001, st + dur);
+    o.connect(g).connect(seGain);
+    o.start(st);
+    o.stop(st + dur + 0.02);
+  }
+
+  // メニュータップ音(judge/coinとは別音色)。kindでボタンの種類ごとに音色を変える(改修バッチ・Step9)。
+  // 引数なし("select"扱い)は既存の軽いクリックのまま(後方互換)。
+  //   "select"  … 項目選択(キャラ・装備・曲・タブ切替)
+  //   "confirm" … 決定(モード選択・装備決定・購入確認OKなど)
+  //   "back"    … 戻る/閉じる
+  //   "launch"  … 「いざ!」専用ファンファーレ
+  //   "buy"     … ショップ購入成立
+  //   "error"   … 購入失敗・ロック項目タップ
+  function ui(kind) {
+    const now = ctx.currentTime;
+    if (kind === "confirm") {
+      // 明るい2音(決定)
+      uiTone(0, 740, 0.09, 0.22, "triangle");
+      uiTone(0.05, 1108.7, 0.12, 0.24, "triangle");
+    } else if (kind === "back") {
+      // 下降音(戻る/閉じる)
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = "sine";
+      o.frequency.setValueAtTime(640, now);
+      o.frequency.exponentialRampToValueAtTime(320, now + 0.1);
+      g.gain.setValueAtTime(0.0001, now);
+      g.gain.exponentialRampToValueAtTime(0.2, now + 0.006);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
+      o.connect(g).connect(seGain);
+      o.start(now);
+      o.stop(now + 0.14);
+    } else if (kind === "launch") {
+      // 短いファンファーレ(3音上昇)
+      uiTone(0,    523.25, 0.1,  0.22, "triangle");
+      uiTone(0.08, 659.25, 0.1,  0.24, "triangle");
+      uiTone(0.16, 987.77, 0.22, 0.28, "triangle");
+    } else if (kind === "buy") {
+      // レジ風チャリン(coin()とは別音色。2音の金属的なベル)
+      uiTone(0,    1760, 0.16, 0.22, "square");
+      uiTone(0.03, 2637, 0.2,  0.18, "square");
+    } else if (kind === "error") {
+      // ブブー(短い低音2連)
+      uiTone(0,    150, 0.09, 0.24, "sawtooth");
+      uiTone(0.11, 150, 0.09, 0.24, "sawtooth");
+    } else {
+      // "select" / 引数なし(既存の軽いクリック。後方互換)
+      uiTone(0, 720, 0.07, 0.18, "sine");
+    }
+  }
+
   // 音量設定(0..1)。bgm/se いずれか未指定なら据え置き。
   function setVolume(bgm, se) {
     if (typeof bgm === "number") bgmGain.gain.value = bgm;
@@ -127,5 +346,8 @@ const SFX = (() => {
     return src;
   }
 
-  return { ctx, resume, click, judge, coin, setVolume, playBuffer, bgmGain, seGain };
+  return {
+    ctx, resume, click, judge, coin, setVolume, playBuffer, bgmGain, seGain,
+    jump, dash, pickup, hurt, enemyDie, telegraph, bossDie, fever, ui,
+  };
 })();
