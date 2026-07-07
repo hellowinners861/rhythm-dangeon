@@ -25,6 +25,24 @@ const CONFIG = {
   // 1タイルの論理px(1600×900で横20タイルぶんの視界)
   TILE: 80,
 
+  // スプライト描画(js/sprites.js の処理済み画像をプレイヤー等に使う。DRAW値は実プレイで微調整前提)
+  SPRITE: {
+    DRAW_TILES: 2.0,   // スプライトの描画高さ(タイル単位)。実プレイで微調整する前提
+    FOOT_LIFT: 0.30,   // 足元をタイル中心からどれだけ下げるか(タイル単位。0でcy、正で下)
+    // per-sprite アンカー表(画像比率)。攻撃画像は砂埃・スピード線で不透明boxが全面になり
+    // 大きさ・位置が破綻するため、キャラ本体の 水平中心cx / 足元foot / 身長h を手動指定する。
+    // scale = DRAW_TILES*TILE / (h*imgH) とし、画像点(cx,foot)を画面の足元へ合わせる。
+    // アンカーが無いキー(敵/ボス等)は不透明box基準にフォールバックする。
+    ANCHORS: {
+      player_rat_idle:     { cx: 0.46,  foot: 0.883, h: 0.778 },
+      player_rat_attack:   { cx: 0.52,  foot: 0.855, h: 0.72  },
+      player_sword_idle:   { cx: 0.434, foot: 0.883, h: 0.791 },
+      player_sword_attack: { cx: 0.50,  foot: 0.86,  h: 0.72  },
+      player_gun_idle:     { cx: 0.51,  foot: 0.883, h: 0.771 },
+      player_gun_attack:   { cx: 0.482, foot: 0.893, h: 0.782 },
+    },
+  },
+
   // プレイヤーの物理(拍ゲート式アクション基盤。DESIGN §3)
   PHYSICS: {
     MOVE_TWEEN_BEATS: 0.4,   // 移動トゥイーンの所要拍
