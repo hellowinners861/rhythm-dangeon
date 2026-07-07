@@ -124,6 +124,8 @@ const Game = (() => {
     el.storyText = document.getElementById("story-text");
 
     SAVE.load();
+    // スプライト(プレイヤー画像)を先読みロード(await不要。ロードでき次第 Player.draw が画像に切替)。
+    if (typeof Sprites !== "undefined") Sprites.load();
     // 章・ステージ選択の初期値を進行データから復元(最新の解放位置)
     selChapter = SAVE.data.progress.unlockedChapter;
     selStage = SAVE.data.progress.unlockedStage;

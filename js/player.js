@@ -623,24 +623,61 @@ const Player = (() => {
     g.fill();
     g.globalAlpha = bodyAlpha;
 
-    // 体(キャラ色)
-    g.fillStyle = airborne() ? shade(char.color, 1.12) : char.color;
-    g.beginPath();
-    g.arc(cx + thrust * 0.3, cy, r, 0, Math.PI * 2);
-    g.fill();
+    // 体+目:スプライトがあれば画像描画、無ければ従来の円+目にフォールバック。
+    // キーは attack.dur>0(攻撃モーション中)で idle/attack を切り替える。
+    const sprKey = "player_" + charId + "_" + (attack.dur > 0 ? "attack" : "idle");
+    const sprEntry = (typeof Sprites !== "undefined") ? Sprites.getEntry(sprKey) : null;
 
-    // 目(向きに応じてオフセット)
-    const ex2 = cx + thrust * 0.3 + dir * r * 0.22;
-    g.fillStyle = "#fff";
-    g.beginPath();
-    g.arc(ex2 - r * 0.18, cy - r * 0.18, r * 0.22, 0, Math.PI * 2);
-    g.arc(ex2 + r * 0.18, cy - r * 0.18, r * 0.22, 0, Math.PI * 2);
-    g.fill();
-    g.fillStyle = "#12141c";
-    g.beginPath();
-    g.arc(ex2 - r * 0.14 + dir * 3, cy - r * 0.16, r * 0.1, 0, Math.PI * 2);
-    g.arc(ex2 + r * 0.22 + dir * 3, cy - r * 0.16, r * 0.1, 0, Math.PI * 2);
-    g.fill();
+    if (sprEntry) {
+      // --- スプライト描画 ---
+      const iw = sprEntry.canvas.width, ih = sprEntry.canvas.height;
+      const drawH = CONFIG.SPRITE.DRAW_TILES * TILE; // 描画高さ(タイル単位×TILE)
+      const anchorX = cx + thrust * 0.3;             // タックルの突き分をスプライトにも反映
+      const footScreenY = cy + CONFIG.SPRITE.FOOT_LIFT * TILE; // 足元(影の位置に揃える。FOOT_LIFTで微調整)
+
+      // per-spriteアンカー表があればそれを使う(攻撃画像の砂埃で不透明boxが破綻するため)。
+      // 無ければ不透明box基準にフォールバック(敵/ボス等)。
+      const anc = (CONFIG.SPRITE.ANCHORS && CONFIG.SPRITE.ANCHORS[sprKey]) || null;
+      let scale, srcCx, srcFootY;
+      if (anc) {
+        scale = drawH / (anc.h * ih);   // 身長hで割ることで画面上の見た目サイズを一定に保つ
+        srcCx = anc.cx * iw;
+        srcFootY = anc.foot * ih;
+      } else {
+        const box = sprEntry.box;
+        const boxH = box.maxy - box.miny + 1;
+        scale = drawH / boxH;
+        srcCx = (box.minx + box.maxx + 1) / 2;
+        srcFootY = box.maxy + 1;
+      }
+
+      g.imageSmoothingEnabled = true;
+      g.translate(anchorX, footScreenY);
+      if (dir < 0) g.scale(-1, 1); // 左向きは水平反転(元画像は右向き)
+      g.scale(scale, scale);
+      // 画像点(srcCx, srcFootY)を原点(足元)へ合わせて全体を描く
+      g.drawImage(sprEntry.canvas, -srcCx, -srcFootY);
+    } else {
+      // --- フォールバック:従来の円+目(スプライト未ロード/失敗時) ---
+      // 体(キャラ色)
+      g.fillStyle = airborne() ? shade(char.color, 1.12) : char.color;
+      g.beginPath();
+      g.arc(cx + thrust * 0.3, cy, r, 0, Math.PI * 2);
+      g.fill();
+
+      // 目(向きに応じてオフセット)
+      const ex2 = cx + thrust * 0.3 + dir * r * 0.22;
+      g.fillStyle = "#fff";
+      g.beginPath();
+      g.arc(ex2 - r * 0.18, cy - r * 0.18, r * 0.22, 0, Math.PI * 2);
+      g.arc(ex2 + r * 0.18, cy - r * 0.18, r * 0.22, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = "#12141c";
+      g.beginPath();
+      g.arc(ex2 - r * 0.14 + dir * 3, cy - r * 0.16, r * 0.1, 0, Math.PI * 2);
+      g.arc(ex2 + r * 0.22 + dir * 3, cy - r * 0.16, r * 0.1, 0, Math.PI * 2);
+      g.fill();
+    }
     g.restore();
 
     // 攻撃エフェクト(タックル=前方の円 / 剣=弧 / ビーム不発=×)
