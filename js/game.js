@@ -915,7 +915,7 @@ const Game = (() => {
     g.clearRect(0, 0, VW, VH);
 
     if (scene === "title") {
-      g.fillStyle = "#05060a";
+      g.fillStyle = "#ffffff";
       g.fillRect(0, 0, VW, VH);
       renderTitle();
     } else if (scene === "modeselect" || scene === "ready" || scene === "options" || scene === "jukebox") {
@@ -984,7 +984,7 @@ const Game = (() => {
       const y = ((p.seedY + t * p.speed) % (VH + 60)) - 30;
       const x = p.x + Math.sin(t * p.driftRate + p.phase) * p.driftAmp;
       g.globalAlpha = p.alpha;
-      g.fillStyle = "#9fb4ff";
+      g.fillStyle = "rgba(80,110,190,0.28)";
       g.font = Math.round(p.size) + "px sans-serif";
       g.fillText(p.glyph, x, y);
     }
@@ -998,17 +998,17 @@ const Game = (() => {
     // ロゴはゆっくり明滅(拍とは無関係。周期を長くして落ち着いた見た目に)
     const logoBlink = 0.5 + 0.5 * Math.sin(performance.now() / 1400);
     g.globalAlpha = 0.55 + 0.45 * logoBlink;
-    g.fillStyle = "#ffffff";
+    g.fillStyle = "#161821";
     g.font = "bold 72px sans-serif";
     g.fillText("リズムダンジョン", VW / 2, VH / 2 - 40);
     g.globalAlpha = 1;
     g.font = "36px sans-serif";
     if (!songReady) {
       // 楽曲デコード中は開始不可(タップ無効)
-      g.fillStyle = "#8f9bbf";
+      g.fillStyle = "#66708a";
       g.fillText("読み込み中…", VW / 2, VH / 2 + 60);
     } else {
-      g.fillStyle = "#9fb4ff";
+      g.fillStyle = "#3f5fb5";
       const blink = 0.5 + 0.5 * Math.sin(performance.now() / 350);
       g.globalAlpha = 0.4 + 0.6 * blink;
       g.fillText("タップして開始", VW / 2, VH / 2 + 60);
