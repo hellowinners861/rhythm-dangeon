@@ -378,6 +378,7 @@ const SFX = (() => {
   // atTime は AudioContext 絶対時刻(拍と同じ時計)。opts.loop でループ再生。
   // opts.loopStart / loopEnd(秒)指定時はその区間で周回する
   // (譜面ループ chartBeat = beat % totalBeats と音声の周期を一致させるため)。
+  // opts.gain(0..1)指定時は bgmGain の手前に個別GainNodeを挟んで音量を絞る(ホームBGM等・仮組み)。
   function playBuffer(buffer, atTime, opts) {
     const src = ctx.createBufferSource();
     src.buffer = buffer;
@@ -386,7 +387,13 @@ const SFX = (() => {
       src.loopStart = opts.loopStart || 0;
       src.loopEnd = opts.loopEnd;
     }
-    src.connect(bgmGain);
+    if (opts && typeof opts.gain === "number") {
+      const g = ctx.createGain();
+      g.gain.value = opts.gain;
+      src.connect(g).connect(bgmGain);
+    } else {
+      src.connect(bgmGain);
+    }
     src.start(atTime || ctx.currentTime);
     return src;
   }

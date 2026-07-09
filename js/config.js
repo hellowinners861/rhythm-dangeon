@@ -112,12 +112,13 @@ const CONFIG = {
     bomber: { name: "ボマー",     hp: 2, dmg: 1, interval: 3, ai: "bomber",  color: "#e07f97", bombFuse: 2, bombMax: 1, coinDrop: 1 },
 
     // --- 色違い6種(DESIGN §7・強化版)。base=元種キー。enemies.js側のAI関数へ渡すフラグのみ最小追加。
-    redslime:    { name: "レッドスライム", base: "slime",  hp: 2, dmg: 1, interval: 1, ai: "patrol",  color: "#e0473f", coinDrop: 2 },
-    goldbat:     { name: "ゴールドバット", base: "bat",    hp: 1, dmg: 1, interval: 1, ai: "chase", flee: true, fly: true, color: "#ffd54a", vision: 8, coinDrop: 10 },
-    blackknight: { name: "ブラックナイト", base: "knight", hp: 4, dmg: 1.5, interval: 2, ai: "knight",  color: "#1c1c22", coinDrop: 2 },
-    sniper:      { name: "スナイパー",     base: "gunner", hp: 1, dmg: 1, interval: 2, ai: "shooter", color: "#3f6fe0", bulletSpeed: 2, coinDrop: 2 },
-    wraith:      { name: "怨霊",           base: "ghost",  hp: 1, dmg: 1, interval: 2, ai: "ghost",   fly: true, color: "rgba(224,90,90,0.72)", vision: 12, coinDrop: 2 },
-    deathbomber: { name: "デスボマー",     base: "bomber", hp: 2, dmg: 1, interval: 3, ai: "bomber",  color: "#16161a", bombFuse: 2, bombMax: 2, bombShape: "square", coinDrop: 2 },
+    // coinDrop=50(全種統一。仮組み経済調整)。フィーバー中は既存仕様どおり2倍(=100)になる。
+    redslime:    { name: "レッドスライム", base: "slime",  hp: 2, dmg: 1, interval: 1, ai: "patrol",  color: "#e0473f", coinDrop: 50 },
+    goldbat:     { name: "ゴールドバット", base: "bat",    hp: 1, dmg: 1, interval: 1, ai: "chase", flee: true, fly: true, color: "#ffd54a", vision: 8, coinDrop: 50 },
+    blackknight: { name: "ブラックナイト", base: "knight", hp: 4, dmg: 1.5, interval: 2, ai: "knight",  color: "#1c1c22", coinDrop: 50 },
+    sniper:      { name: "スナイパー",     base: "gunner", hp: 1, dmg: 1, interval: 2, ai: "shooter", color: "#3f6fe0", bulletSpeed: 2, coinDrop: 50 },
+    wraith:      { name: "怨霊",           base: "ghost",  hp: 1, dmg: 1, interval: 2, ai: "ghost",   fly: true, color: "rgba(224,90,90,0.72)", vision: 12, coinDrop: 50 },
+    deathbomber: { name: "デスボマー",     base: "bomber", hp: 2, dmg: 1, interval: 3, ai: "bomber",  color: "#16161a", bombFuse: 2, bombMax: 2, bombShape: "square", coinDrop: 50 },
   },
 
   // 拾得アイテム(DESIGN §8)。レベルの'I'マーカーをこの確率(合計1)で抽選し実体化する。
@@ -135,8 +136,8 @@ const CONFIG = {
       { value: 3,  r: 0.34, color: "#d8dce8", ring: "#ffffff", label: "3"  }, // 中・銀
       { value: 1,  r: 0.26, color: "#d09a52", ring: "#e8c188", label: ""   }, // 小・銅(ラベルなし)
     ],
-    // レベル生成のCマーカーの額面抽選(シード乱数・重み)
-    COIN_SPAWN_WEIGHTS: [ { value: 1, w: 60 }, { value: 3, w: 25 }, { value: 10, w: 13 }, { value: 50, w: 2 } ],
+    // レベル生成のCマーカーの額面抽選(シード乱数・重み)。10/50の出現率を引き上げ(経済調整)。
+    COIN_SPAWN_WEIGHTS: [ { value: 1, w: 45 }, { value: 3, w: 25 }, { value: 10, w: 22 }, { value: 50, w: 8 } ],
   },
 
   // 章テーマ(DESIGN §10)。見た目(背景・タイル色)と難度係数。進行システム自体はStep8。
@@ -153,7 +154,12 @@ const CONFIG = {
   ],
 
   // 経済(DESIGN §9/§11)。ゲームオーバー時に持ち帰るコインの割合(端数切り捨て)。
-  ECONOMY: { GAMEOVER_COIN_RATE: 0.5 },
+  // SONG_CLEAR_COIN_MUL=曲が終わる前にゴールした「曲内クリア」時の持ち帰りコイン倍率。
+  ECONOMY: { GAMEOVER_COIN_RATE: 0.5, SONG_CLEAR_COIN_MUL: 2 },
+
+  // ホーム画面BGM(仮組み)。専用曲が無いため選択中の曲を小さめの音量でループ再生する。
+  // GAINはbgmGain(BGM音量スライダー)の手前に挟む個別音量(0..1)。
+  HOME_BGM: { GAIN: 0.35 },
 
   // 装備40種(頭・体・足・武器 × 各10種)。DESIGN §9。
   // fxは Equip.stats() が集計する効果語彙(js/equip.js 参照)。
