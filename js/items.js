@@ -137,14 +137,21 @@ const Items = (() => {
   }
 
   // 拾得アイテムの効果適用(ハート/シールド/ブースト)。DESIGN §8・Step7。
+  // ハートはoverheal=trueで回復し、maxHpを超えて回復できる(rev3。そのステージ中のみ・次ステージ開始でリセット)。
   function collectPickup(kind, tx, ty) {
     if (typeof Player !== "undefined") {
-      if (kind === "heart") Player.heal(CONFIG.ITEMS.HEAL_AMOUNT);
+      if (kind === "heart") Player.heal(CONFIG.ITEMS.HEAL_AMOUNT, true);
       else if (kind === "shield" && Player.addShield) Player.addShield(CONFIG.ITEMS.SHIELD_ADD);
       else if (kind === "boost" && Player.setBoost) Player.setBoost(CONFIG.ITEMS.BOOST_BEATS);
     }
     effects.push({ x: tx, y: ty, t: 0, dur: 0.4, icon: ICONS[kind] });
     if (typeof SFX !== "undefined" && SFX.pickup) SFX.pickup(); // コインとは別音色の取得音(Step9)
+  }
+
+  // 動的にpickupを1つ生成する(ボス召喚コウモリの撃破時ハートドロップ等。rev3)。
+  // Iマーカー由来のpickupと同じ構造を再利用するため、init()の生成ロジックと処理・描画を共有できる。
+  function spawnPickup(kind, tx, ty) {
+    pickups.push({ tx, ty, kind, alive: true, bob: Math.random() * Math.PI * 2 });
   }
 
   // 毎フレーム更新:プレイヤーのタイル(+magnet半径以内)のコインを回収する。
@@ -265,7 +272,7 @@ const Items = (() => {
   }
 
   return {
-    init, update, draw, settle, spawnCoin, collectCoinsAt,
+    init, update, draw, settle, spawnCoin, collectCoinsAt, spawnPickup,
     get stageCoins() { return stageCoins; },
     _pickups() { return pickups; },
     _coins() { return coins; },

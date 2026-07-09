@@ -195,9 +195,10 @@ const Player = (() => {
   }
 
   // 吸血の牙(vampire)等の回復。上限maxHpでクランプする。
-  function heal(amount) {
+  // overheal=true(ハート拾得時。rev3): 上限を超えて回復できる(そのステージ中のみ。Player.initで毎回リセットされる)。
+  function heal(amount, overheal) {
     if (hp <= 0) return;
-    hp = Math.min(maxHp, hp + amount);
+    hp = overheal ? hp + amount : Math.min(maxHp, hp + amount);
   }
 
   // シールド拾得アイテム。CONFIG.ITEMS.SHIELD_MAX を上限にクランプする(DESIGN §8・Step7)。
@@ -396,13 +397,13 @@ const Player = (() => {
     return results;
   }
 
-  // ソードマン:前方1タイル(+その頭上1タイル)へ攻撃。移動なし。
-  // 貫通レンズ(pierce): 前方2タイル目(+頭上)まで判定を広げる。
+  // ソードマン:前方1タイルのみへ攻撃。移動なし。(rev3: 頭上1タイルの判定は削除)
+  // 貫通レンズ(pierce): 前方2タイル目まで判定を広げる。
   function doSword(verdict) {
     const atk = atkTotal(verdict);
     const stats = getStats();
-    const tiles = [{ tx: tx + dir, ty }, { tx: tx + dir, ty: ty - 1 }];
-    if (stats.pierce) tiles.push({ tx: tx + dir * 2, ty }, { tx: tx + dir * 2, ty: ty - 1 });
+    const tiles = [{ tx: tx + dir, ty }];
+    if (stats.pierce) tiles.push({ tx: tx + dir * 2, ty });
     const results = dealDamage(tiles, atk);
     // 攻撃でコイン取得(剣=前方+その上。pierce時は2タイル目も。攻撃範囲=tilesと同一)
     if (typeof Items !== "undefined" && Items.collectCoinsAt) Items.collectCoinsAt(tiles);
