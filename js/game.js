@@ -1025,9 +1025,19 @@ const Game = (() => {
     }
   }
 
+  // 16進カラー文字列("#rrggbb")を rgba() 文字列へ変換する(タイル上面ハイライトの半透明オーバーレイ用)。
+  function hexToRgba(hex, alpha) {
+    const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
+    if (!m) return hex;
+    const r = parseInt(m[1], 16), gg = parseInt(m[2], 16), b = parseInt(m[3], 16);
+    return `rgba(${r},${gg},${b},${alpha})`;
+  }
+
   // タイルワールド描画(可視範囲のみ)。ブロック色は章テーマから参照(DESIGN §10・Step7)。
+  // 章の tileSprite が読み込み済みならテクスチャ敷き詰め、そうでなければ従来の単色fillにフォールバック(Step7.5)。
   function renderWorld() {
     const theme = chapterTheme();
+    const tex = (theme.tileSprite && typeof Sprites !== "undefined") ? Sprites.get(theme.tileSprite) : null;
     const cLo = Math.floor(cam.x - VW / (2 * TILE) - 1);
     const cHi = Math.ceil(cam.x + VW / (2 * TILE) + 1);
     for (let row = 0; row < level.h; row++) {
@@ -1037,12 +1047,17 @@ const Game = (() => {
         if (col < 0 || col >= level.w) continue;
         const sx = tileScreenX(col);
         const sy = tileScreenY(row);
-        // ブロック本体
-        g.fillStyle = theme.tile;
-        g.fillRect(sx, sy, TILE, TILE);
-        // 上面が空なら明るいハイライト(地表の縁)
+        // ブロック本体:テクスチャがあれば敷き詰め(切り出しなし=タイルごとに全画像を1タイルへ縮小)、
+        // 無ければ従来の単色fill。
+        if (tex) {
+          g.drawImage(tex, sx, sy, TILE, TILE);
+        } else {
+          g.fillStyle = theme.tile;
+          g.fillRect(sx, sy, TILE, TILE);
+        }
+        // 上面が空なら明るいハイライト(地表の縁)。テクスチャ使用時は半透明オーバーレイとして重ねる。
         if (!LevelGen.solidAt(level, col, row - 1)) {
-          g.fillStyle = theme.tileTop;
+          g.fillStyle = tex ? hexToRgba(theme.tileTop, 0.35) : theme.tileTop;
           g.fillRect(sx, sy, TILE, 8);
         }
         // 内側の陰影で立体感
