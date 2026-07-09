@@ -262,7 +262,8 @@ const Player = (() => {
   // 壁があれば手前で止める(成立扱い)。
   function airControl(d) {
     const stats = getStats();
-    const dist = 1 + stats.airControlPlus;
+    // 空中の横移動は地上(1タイル)の2倍が基本(CONFIG.PHYSICS.AIR_CONTROL_TILES=2)。装備airControlPlusは加算。
+    const dist = P().AIR_CONTROL_TILES + stats.airControlPlus;
     const moveSec = beatsToSec(P().MOVE_TWEEN_BEATS);
     let reached = tx;
     for (let i = 0; i < dist; i++) {
@@ -351,6 +352,7 @@ const Player = (() => {
     const atk = atkTotal(verdict);
     const stats = getStats();
     const tiles = char.tackleTiles || 2;
+    const tx0 = tx;      // 突進前のタイルX(コイン回収の経路起点。txはこの後 reached へ更新される)
     let reached = tx;
     let piercedUsed = false;
     const results = [];
@@ -384,6 +386,12 @@ const Player = (() => {
         state = "move";
       }
     }
+    // 攻撃でコイン取得(タックル=経路。tx+dir〜reached の通過タイル群)。
+    if (typeof Items !== "undefined" && Items.collectCoinsAt) {
+      const coinTiles = [];
+      for (let cx = tx0 + dir; cx !== reached + dir; cx += dir) coinTiles.push({ tx: cx, ty });
+      if (coinTiles.length) Items.collectCoinsAt(coinTiles);
+    }
     attack = { t: 0, dur: 0.18, dir, type: "tackle", beamEndTx: 0 };
     return results;
   }
@@ -396,6 +404,8 @@ const Player = (() => {
     const tiles = [{ tx: tx + dir, ty }, { tx: tx + dir, ty: ty - 1 }];
     if (stats.pierce) tiles.push({ tx: tx + dir * 2, ty }, { tx: tx + dir * 2, ty: ty - 1 });
     const results = dealDamage(tiles, atk);
+    // 攻撃でコイン取得(剣=前方+その上。pierce時は2タイル目も。攻撃範囲=tilesと同一)
+    if (typeof Items !== "undefined" && Items.collectCoinsAt) Items.collectCoinsAt(tiles);
     attack = { t: 0, dur: 0.2, dir, type: "sword", beamEndTx: 0 };
     return results;
   }
@@ -412,6 +422,8 @@ const Player = (() => {
     let cx = tx + dir;
     while (!solid(cx, ty) && cx >= 0 && cx < level.w) { tiles.push({ tx: cx, ty }); cx += dir; }
     const results = dealDamage(tiles, atk);
+    // 攻撃でコイン取得(ビーム=直線全タイル。攻撃範囲=tilesと同一)
+    if (typeof Items !== "undefined" && Items.collectCoinsAt) Items.collectCoinsAt(tiles);
     reloadUntilBeat = curBeat() + (char.reloadBeats || 1);
     attack = { t: 0, dur: 0.16, dir, type: "beam", beamEndTx: cx - dir };
     return results;
@@ -421,6 +433,9 @@ const Player = (() => {
   // sourceDir … 攻撃源の方向(+1=右 / -1=左 / 0=同タイル)。ノックバックは逆方向。
   // opts.projectile … 敵の弾によるダメージなら true(忍び装束のprojDefMulを適用)。
   function hurt(dmg, sourceDir, opts) {
+    // 攻撃モーション中(attack.dur > 0)は完全無敵。ダメージ・ノックバック・無敵点滅の開始も一切行わず即return。
+    // 接触・弾・爆発・ボスの被弾は全て hurt 経由(enemies.js / boss.js)なので、ここ1箇所で全経路をガードできる。
+    if (attack.dur > 0) return false;
     if (hp <= 0) return false;
     if (isInvulnerable()) return false;
     const stats = getStats();
