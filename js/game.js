@@ -1023,6 +1023,39 @@ const Game = (() => {
       g.fillStyle = `rgba(255,120,40,${0.06 + beatPulse * 0.08})`;
       g.fillRect(0, 0, VW, VH);
     }
+    // 視差の多層スクロール背景(グラデーション+拍パルスの上に重ねる)。DESIGN §10
+    renderBgLayers(theme);
+  }
+
+  // 章の bgLayers(奥→手前)を視差スクロールで描画する。
+  // 各レイヤーは画像を画面高さ(VH)いっぱいに等比拡大し、水平に繰り返し敷き詰める。
+  // 素材が完全ループでない可能性があるため、隣り合うタイルを水平反転(ミラータイリング)して継ぎ目を連続にする。
+  // parallax が小さいほど遠く(ゆっくり動く)。cam.x(タイル)×TILE×parallax を水平オフセットに使う。
+  function renderBgLayers(theme) {
+    if (!theme.bgLayers || typeof Sprites === "undefined") return;
+    for (const layer of theme.bgLayers) {
+      const spr = Sprites.get(layer.sprite);
+      if (!spr) continue; // 未ロード/失敗時はスキップ(グラデーション背景のまま)
+      const drawH = VH;
+      const drawW = drawH * (spr.width / spr.height); // 等比拡大後の1枚幅(≈1613px)
+      // スクロール量(px)。baseIndex はミラー偶奇を絶対位置に固定し、スクロール時のちらつきを防ぐ。
+      const shift = cam.x * TILE * layer.parallax;
+      const baseIndex = Math.floor(shift / drawW);
+      const off = -(shift - baseIndex * drawW); // (-drawW, 0]
+      for (let k = 0; off + k * drawW < VW; k++) {
+        const left = off + k * drawW;
+        const flip = ((((baseIndex + k) % 2) + 2) % 2) === 1; // 偶数枚目=そのまま/奇数枚目=水平反転
+        g.save();
+        if (flip) {
+          g.translate(left + drawW, 0);
+          g.scale(-1, 1);
+          g.drawImage(spr, 0, 0, drawW, drawH);
+        } else {
+          g.drawImage(spr, left, 0, drawW, drawH);
+        }
+        g.restore();
+      }
+    }
   }
 
   // 16進カラー文字列("#rrggbb")を rgba() 文字列へ変換する(タイル上面ハイライトの半透明オーバーレイ用)。

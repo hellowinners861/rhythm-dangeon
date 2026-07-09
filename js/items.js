@@ -117,6 +117,25 @@ const Items = (() => {
     if (typeof SFX !== "undefined" && SFX.coin) SFX.coin(value);
   }
 
+  // 攻撃でのコイン回収(Player.doAttack から攻撃範囲タイルを渡して呼ばれる)。
+  // 指定タイル群にあるコインのみ回収する(ハート等の拾得アイテムは対象外)。
+  // +nポップ・SE・coinMul適用は通常回収 collect() を再利用する。
+  function collectCoinsAt(tiles) {
+    if (!tiles || !tiles.length || !coins.length) return;
+    const stats = getStats();
+    let stackIdx = 0;
+    for (const t of tiles) {
+      for (const c of coins) {
+        if (!c.alive) continue;
+        if (c.tx === t.tx && c.ty === t.ty) {
+          c.alive = false;
+          collect(stats.coinMul, c.tx, c.ty, c.value, stackIdx++);
+        }
+      }
+    }
+    coins = coins.filter((c) => c.alive);
+  }
+
   // 拾得アイテムの効果適用(ハート/シールド/ブースト)。DESIGN §8・Step7。
   function collectPickup(kind, tx, ty) {
     if (typeof Player !== "undefined") {
@@ -244,7 +263,7 @@ const Items = (() => {
   }
 
   return {
-    init, update, draw, settle, spawnCoin,
+    init, update, draw, settle, spawnCoin, collectCoinsAt,
     get stageCoins() { return stageCoins; },
     _pickups() { return pickups; },
     _coins() { return coins; },
