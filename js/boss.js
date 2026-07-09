@@ -521,13 +521,34 @@ const Boss = (() => {
       g.globalAlpha = alpha;
     }
 
-    const color = boss.phase >= 2 ? boss.d.color2 : boss.d.color;
-    g.fillStyle = color;
-    if (boss.kind === "silencer") drawSilencer(g, cx, cy, cw, ch);
-    else if (boss.kind === "beatcrusher") drawBeatcrusher(g, cx, cy, cw, ch);
-    else drawMutos(g, cx, cy, cw, ch);
+    // スプライトがあれば画像描画(現状サイレンサーのみ・idle画像固定)、無ければ従来の図形+目。
+    const sprEntry = (boss.kind === "silencer" && typeof Sprites !== "undefined")
+      ? Sprites.getEntry("boss_silencer_idle") : null;
 
-    drawBossEyes(g, cx, cy - ch * 0.08, cw, boss.dir);
+    if (sprEntry) {
+      // --- スプライト描画(不透明box基準。boxの中心を占有矩形の中心cx,cyへ合わせる) ---
+      const box = sprEntry.box;
+      const boxH = box.maxy - box.miny + 1;
+      const drawH = (boss.h + CONFIG.SPRITE.BOSS_TILES_PLUS) * TILE;
+      const spScale = drawH / boxH;
+      const srcCx = (box.minx + box.maxx + 1) / 2;
+      const srcCy = (box.miny + box.maxy + 1) / 2;
+
+      g.imageSmoothingEnabled = true;
+      g.translate(cx, cy);
+      if (boss.dir < 0) g.scale(-1, 1); // プレイヤー方向を向くよう水平反転(元画像は正面〜右向き)
+      g.scale(spScale, spScale);
+      g.drawImage(sprEntry.canvas, -srcCx, -srcCy);
+    } else {
+      // --- フォールバック:従来の図形+目(スプライト未着のボス種) ---
+      const color = boss.phase >= 2 ? boss.d.color2 : boss.d.color;
+      g.fillStyle = color;
+      if (boss.kind === "silencer") drawSilencer(g, cx, cy, cw, ch);
+      else if (boss.kind === "beatcrusher") drawBeatcrusher(g, cx, cy, cw, ch);
+      else drawMutos(g, cx, cy, cw, ch);
+
+      drawBossEyes(g, cx, cy - ch * 0.08, cw, boss.dir);
+    }
     g.restore();
 
     // エフェクト

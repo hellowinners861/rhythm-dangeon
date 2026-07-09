@@ -7,7 +7,8 @@
 // 【http配信必須】getImageData は file:// ではtaintでき失敗する。検証は http.server 経由で行う。
 
 const Sprites = (() => {
-  // マニフェスト(キー→パス)。今回はプレイヤー6枚。今後 敵/ボス/アイテムを足せる形。
+  // マニフェスト(キー→パス)。値は「文字列パス」または「{path, key}」(keyはper-imageクロマキー調整)。
+  // 敵/ボス用の一部画像は背景緑と体色緑が近く、デフォルトの閾値では体が消えるため個別調整する。
   const MANIFEST = {
     player_rat_idle:     "assets/player_rat_idle.png",
     player_rat_attack:   "assets/player_rat_attack.png",
@@ -15,14 +16,24 @@ const Sprites = (() => {
     player_sword_attack: "assets/player_sword_attack.png",
     player_gun_idle:     "assets/player_gun_idle.png",
     player_gun_attack:   "assets/player_gun_attack.png",
+    // 敵3種+ボス1種(ディレクター実測: 背景緑=(12,242,7)、スライム体=(31,109,37))
+    enemy_slime:        { path: "assets/enemy_slime.png", key: { gMin: 190, ratio: 2.2, spill: false } },
+    enemy_slime_red:    "assets/enemy_slime_red.png",
+    enemy_bat:          "assets/enemy_bat.png",
+    boss_silencer_idle: "assets/boss_silencer_idle.png",
   };
+
+  // per-imageクロマキーのデフォルト値(省略時)
+  const KEY_DEFAULT = { gMin: 90, ratio: 1.2, spill: true };
 
   // 処理済みエントリ: key → { canvas, box:{minx,miny,maxx,maxy} }
   const store = {};
 
   // 1枚を読み込み→クロマキー+✦除去→バウンディングボックス算出して store へ格納する。
   // 失敗しても throw せず呼び出し側(load)で握りつぶす(1枚失敗でも他は続行)。
-  async function loadOne(key, path) {
+  // keyOpt: { gMin, ratio, spill }(省略時 KEY_DEFAULT)。
+  async function loadOne(key, path, keyOpt) {
+    const opt = Object.assign({}, KEY_DEFAULT, keyOpt || {});
     const img = new Image();
     img.src = path;
     await img.decode(); // デコード完了を待つ(onloadより確実)
@@ -36,18 +47,21 @@ const Sprites = (() => {
     const imageData = ctx.getImageData(0, 0, w, h); // http配信下でのみ動く(file://はtaint)
     const d = imageData.data;
 
-    // --- 1) 緑背景を透過 + 2) 緑フチのスピル抑制(ディレクター検証済みパラメータ) ---
+    // --- 1) 緑背景を透過 + 2) 緑フチのスピル抑制(per-imageパラメータ) ---
     for (let i = 0; i < d.length; i += 4) {
       let r = d[i], g = d[i + 1], b = d[i + 2];
       // 1) 緑背景を透過(緑優勢)
-      if (g > 90 && g > r * 1.2 && g > b * 1.2) {
+      if (g > opt.gMin && g > r * opt.ratio && g > b * opt.ratio) {
         d[i + 3] = 0;
         continue;
       }
-      // 2) 緑フチのスピル抑制(残す画素で緑が突出していたら緑を下げる)
-      const avg = (r + b) / 2;
-      if (g > avg * 1.15) {
-        d[i + 1] = Math.round(avg * 1.15);
+      // 2) 緑フチのスピル抑制(残す画素で緑が突出していたら緑を下げる)。
+      //    spill:false のときは行わない(体色自体の緑が破壊される画像向け)。
+      if (opt.spill) {
+        const avg = (r + b) / 2;
+        if (g > avg * 1.15) {
+          d[i + 1] = Math.round(avg * 1.15);
+        }
       }
     }
 
@@ -88,7 +102,11 @@ const Sprites = (() => {
   async function load() {
     const jobs = Object.keys(MANIFEST).map(async (key) => {
       try {
-        await loadOne(key, MANIFEST[key]);
+        const entry = MANIFEST[key];
+        const isObj = typeof entry === "object" && entry !== null;
+        const path = isObj ? entry.path : entry;
+        const keyOpt = isObj ? entry.key : null;
+        await loadOne(key, path, keyOpt);
       } catch (e) {
         console.warn("[Sprites] 読み込み/処理に失敗:", key, e);
       }

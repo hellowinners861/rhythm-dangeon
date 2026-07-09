@@ -41,6 +41,8 @@ const CONFIG = {
       player_gun_idle:     { cx: 0.51,  foot: 0.883, h: 0.771 },
       player_gun_attack:   { cx: 0.482, foot: 0.893, h: 0.782 },
     },
+    ENEMY_TILES: 1.15,    // ザコ敵スプライトの描画高さ(タイル単位)
+    BOSS_TILES_PLUS: 0.4, // ボススプライトの描画高さ = (ボスの高さタイル数 + これ) × TILE
   },
 
   // プレイヤーの物理(拍ゲート式アクション基盤。DESIGN §3)

@@ -439,6 +439,9 @@ const Enemies = (() => {
     return n;
   }
 
+  // スプライトキーの例外表(kind→Spritesキー)。省略時は "enemy_" + kind とみなす。
+  const ENEMY_SPRITE_KEY = { redslime: "enemy_slime_red" };
+
   function drawEnemy(g, e, cur) {
     const cx = sx(e.x), cy = sy(e.y);
     const r = TILE * 0.4;
@@ -482,17 +485,42 @@ const Enemies = (() => {
       g.globalAlpha = alpha;
     }
 
-    g.fillStyle = e.def.color;
-    switch (e.def.base || e.kind) { // 色違いは基本種の形を流用(色はe.def.colorで差し替え済み)
-      case "slime": drawSlime(g, cx, cy, rr); break;
-      case "bat":   drawBat(g, cx, cy, rr, e.dir); break;
-      case "knight": drawKnight(g, cx, cy, rr, e.dir); break;
-      case "gunner": drawGunner(g, cx, cy, rr, e.dir); break;
-      case "ghost": drawGhost(g, cx, cy, rr); break;
-      case "bomber": drawBomber(g, cx, cy, rr); break;
-      default: g.beginPath(); g.arc(cx, cy, rr, 0, Math.PI * 2); g.fill();
+    // スプライトがあれば画像描画、無ければ従来の図形+目にフォールバック。
+    const sprKey = ENEMY_SPRITE_KEY[e.kind] || ("enemy_" + e.kind);
+    const sprEntry = (typeof Sprites !== "undefined") ? Sprites.getEntry(sprKey) : null;
+
+    if (sprEntry) {
+      // --- スプライト描画(不透明box基準。テレグラフと同じ拡大率scaleを適用) ---
+      const box = sprEntry.box;
+      const boxH = box.maxy - box.miny + 1;
+      const drawH = CONFIG.SPRITE.ENEMY_TILES * TILE * scale;
+      const spScale = drawH / boxH;
+      const srcCx = (box.minx + box.maxx + 1) / 2;
+      const srcFootY = box.maxy + 1;               // box下端(接地用)
+      const srcMidY = (box.miny + box.maxy + 1) / 2; // box中心(浮遊用)
+      // 地上敵:box下端を接地ライン(タイル下端)に合わせる / 飛行敵:box中心をタイル中心に合わせる
+      const anchorY = e.fly ? cy : (cy + TILE * 0.5);
+      const srcAnchorY = e.fly ? srcMidY : srcFootY;
+
+      g.imageSmoothingEnabled = true;
+      g.translate(cx, anchorY);
+      if (e.dir < 0) g.scale(-1, 1); // 左向きは水平反転(元画像は正面〜右向き)
+      g.scale(spScale, spScale);
+      g.drawImage(sprEntry.canvas, -srcCx, -srcAnchorY);
+    } else {
+      // --- フォールバック:従来の図形+目(スプライト未ロード/未着の種) ---
+      g.fillStyle = e.def.color;
+      switch (e.def.base || e.kind) { // 色違いは基本種の形を流用(色はe.def.colorで差し替え済み)
+        case "slime": drawSlime(g, cx, cy, rr); break;
+        case "bat":   drawBat(g, cx, cy, rr, e.dir); break;
+        case "knight": drawKnight(g, cx, cy, rr, e.dir); break;
+        case "gunner": drawGunner(g, cx, cy, rr, e.dir); break;
+        case "ghost": drawGhost(g, cx, cy, rr); break;
+        case "bomber": drawBomber(g, cx, cy, rr); break;
+        default: g.beginPath(); g.arc(cx, cy, rr, 0, Math.PI * 2); g.fill();
+      }
+      drawEyes(g, cx, cy - rr * 0.1, rr, e.dir);
     }
-    drawEyes(g, cx, cy - rr * 0.1, rr, e.dir);
     g.restore();
   }
 
