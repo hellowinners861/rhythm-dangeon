@@ -152,14 +152,15 @@ const Boss = (() => {
   }
 
   // --- 召喚(既存 Enemies の動的スポーンAPIを使う) ---
-  function summon(kind, n) {
+  // opts … Enemies.spawn へそのまま渡す(dropHeart等。rev3: サイレンサーのコウモリ召喚のみdropHeart:trueを渡す)。
+  function summon(kind, n, opts) {
     if (typeof Enemies === "undefined" || !Enemies.spawn) return;
     const cx = Math.round(bossCenterCol());
     for (let i = 0; i < n; i++) {
       const ox = (i - (n - 1) / 2) * 2;
       const tx = Math.max(arena.playLeft, Math.min(arena.playRight, cx + Math.round(ox)));
       const ty = Math.max(1, boss.ty + boss.h); // ボスの少し下(空中)
-      Enemies.spawn(kind, tx, ty);
+      Enemies.spawn(kind, tx, ty, opts);
       effects.push({ type: "summon", x: tx, y: ty, t: 0, dur: 0.35 });
     }
   }
@@ -206,7 +207,8 @@ const Boss = (() => {
       if (p2) landSilencer();
       // phase1: 着地隙の継続(被ダメ1.5倍中)
     } else if (pos === 14) {
-      summon("bat", p2 ? 3 : 2);
+      // サイレンサー召喚のコウモリはハートを落とす(rev3・フェーズ2の3体召喚も含む)
+      summon("bat", p2 ? 3 : 2, { dropHeart: true });
     } else if (pos === 15) {
       moveAnchor(boss.tx, d.airRow);   // 上昇
     }

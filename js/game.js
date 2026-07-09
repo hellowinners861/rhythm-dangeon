@@ -111,6 +111,22 @@ const Game = (() => {
     canvas = document.getElementById("game");
     g = canvas.getContext("2d");
 
+    // Safariのダブルタップ拡大を無効化(rev3)。viewportのmaximum-scaleはiOS Safariが無視することがあるため、
+    // JS側でも二重に防ぐ定石を仕込む: (1) dblclickを潰す (2) 300ms以内の連続touchendの2回目を潰す。
+    // act-btnの連打はpointerdown/pointerupで処理しており(js/input.js)、ここはtouchend/dblclickのみを
+    // 対象にしているためpointerイベントの発火・連打判定には影響しない。
+    document.addEventListener("dblclick", (e) => { e.preventDefault(); }, { passive: false });
+    let lastTouchEndT = 0;
+    document.addEventListener(
+      "touchend",
+      (e) => {
+        const now = Date.now();
+        if (now - lastTouchEndT <= 300) e.preventDefault();
+        lastTouchEndT = now;
+      },
+      { passive: false }
+    );
+
     el.btnCalib = document.getElementById("btn-calib");
     el.calibPanel = document.getElementById("calib-panel");
     el.calibInfo = document.getElementById("calib-info");
@@ -1105,26 +1121,8 @@ const Game = (() => {
         g.strokeRect(sx + 1, sy + 1, TILE - 2, TILE - 2);
       }
     }
-    // スポーン候補マーカー(Step4/6で実体に置換予定のプレースホルダ)
-    renderSpawns(cLo, cHi);
     // ゴール旗
     drawGoal();
-  }
-
-  // スポーン候補の可視化(仮): I=緑四角枠(Step7まで保留のプレースホルダ)
-  // C=コインは Items が実体化して描画するのでここでは描かない。
-  // E=敵も Enemies が実体化して描画するのでここでは描かない。
-  function renderSpawns(cLo, cHi) {
-    if (!level.spawns) return;
-    for (const s of level.spawns) {
-      if (s.tx < cLo || s.tx > cHi) continue;
-      if (s.type !== "I") continue;
-      const cx = tileScreenX(s.tx) + TILE / 2;
-      const cy = tileScreenY(s.ty) + TILE / 2;
-      g.strokeStyle = "rgba(90,223,122,0.8)";
-      g.lineWidth = 3;
-      g.strokeRect(cx - TILE * 0.26, cy - TILE * 0.26, TILE * 0.52, TILE * 0.52);
-    }
   }
 
   function drawGoal() {
@@ -1272,6 +1270,8 @@ const Game = (() => {
 
   // HPハート(左上)。maxHpぶんの枠を出し、残りHPを塗る。
   // HPは装備のdefMulで小数(0.5刻み)になり得るため、半端(0<remain<1)は左半分だけ塗る。
+  // 超過分(overheal・rev3): ハート拾得はmaxHpを超えて回復できるため、maxHpぶんの枠の右に
+  // 続けて「枠なし・少し小さめ・金色」のボーナスハートを描く(844×390で溢れないよう最大+5個まで)。
   function drawHearts(ox, oy) {
     const n = Math.round(Player.maxHp);
     const hp = Player.hp;
@@ -1303,6 +1303,20 @@ const Game = (() => {
       }
     }
     g.globalAlpha = 1;
+
+    // 超過分(overheal):maxHpを超えたぶんを枠なしの小さめ金色ハートで右へ続ける
+    const overflow = Math.max(0, Math.ceil(hp - n));
+    if (overflow > 0) {
+      const shown = Math.min(5, overflow);
+      const os = s * 0.78; // 通常より少し小さめ
+      g.font = "24px sans-serif";
+      g.fillStyle = "#ffd54a";
+      for (let i = 0; i < shown; i++) {
+        const x = ox + n * (s + gap) + 6 + i * (os + 6);
+        g.fillText("♥", x, oy);
+      }
+      g.font = "30px sans-serif";
+    }
     g.textBaseline = "alphabetic";
   }
 

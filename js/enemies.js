@@ -68,6 +68,7 @@ const Enemies = (() => {
         fly: !!def.fly,
         transparent: false,       // ゴースト用
         pendingMelee: null,       // ナイトの攻撃予約 {beat,dir}
+        dropHeart: false,         // 通常スポーンはハートを落とさない(ボス召喚のみtrue。rev3)
         tw: { fromX: s.tx, fromY: s.ty, toX: s.tx, toY: s.ty, t: 0, dur: 0.001, active: false },
         alive: true,
       });
@@ -331,6 +332,10 @@ const Enemies = (() => {
           e.alive = false;
           kills++;
           SFX.enemyDie();
+          // ハートドロップ(dropHeart=true。ボス召喚のコウモリ等。rev3)。通常スポーンは既定falseなので落とさない。
+          if (e.dropHeart && typeof Items !== "undefined" && Items.spawnPickup) {
+            Items.spawnPickup("heart", e.tx, e.ty);
+          }
           effects.push({ type: "die", x: e.tx, y: e.ty, t: 0, dur: 0.28, color: e.def.color });
           // 小さな白い破片(3〜5個。演出のみ・Math.random可・Step9)
           const shardN = 3 + Math.floor(Math.random() * 3);
@@ -676,16 +681,19 @@ const Enemies = (() => {
     }
   }
 
-  // デバッグ用:任意種の敵を任意タイルへ配置(検証で使用)。
-  function _debugSpawn(kind, tx, ty, phase) {
+  // デバッグ用/動的スポーンの正式API:任意種の敵を任意タイルへ配置(検証・ボス召喚で使用)。
+  // opts.phase … 行動位相(省略時0。既存のphase引数を吸収)/ opts.dropHeart … 撃破時にハートを落とすか(rev3)。
+  function _debugSpawn(kind, tx, ty, opts) {
     const def = CONFIG.ENEMIES[kind];
     if (!def) return null;
+    const phase = (opts && typeof opts.phase === "number") ? opts.phase : 0;
     const e = {
       kind, def, ai: def.ai,
       tx, ty, x: tx, y: ty,
       hp: def.hp, dir: -1,
-      interval: def.interval, phase: (phase || 0) % def.interval,
+      interval: def.interval, phase: phase % def.interval,
       fly: !!def.fly, transparent: false, pendingMelee: null,
+      dropHeart: !!(opts && opts.dropHeart),
       tw: { fromX: tx, fromY: ty, toX: tx, toY: ty, t: 0, dur: 0.001, active: false },
       alive: true,
     };
@@ -695,7 +703,7 @@ const Enemies = (() => {
 
   return {
     init, update, draw, damageAt, enemyAt, setFever,
-    spawn: _debugSpawn, // ボスの召喚など動的スポーンの正式API(kind, tx, ty[, phase])
+    spawn: _debugSpawn, // ボスの召喚など動的スポーンの正式API(kind, tx, ty[, opts={phase,dropHeart}])
     get count() { return list.length; },
     get bulletCount() { return bullets.length; },
     get bombCount() { return bombs.length; },
