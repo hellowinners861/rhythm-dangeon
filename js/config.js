@@ -40,6 +40,12 @@ const CONFIG = {
       player_sword_attack: { cx: 0.50,  foot: 0.86,  h: 0.72  },
       player_gun_idle:     { cx: 0.51,  foot: 0.883, h: 0.771 },
       player_gun_attack:   { cx: 0.482, foot: 0.893, h: 0.782 },
+      // 走りポーズ(砂埃が端まで達しboxが破綻するため手動指定)
+      player_rat_run:      { cx: 0.55,  foot: 0.85,  h: 0.73 },
+      player_gun_run:      { cx: 0.55,  foot: 0.85,  h: 0.72 },
+      // 騎士2種(足元の砂埃対策。敵描画もANCHORSを参照する)
+      enemy_knight:        { cx: 0.55,  foot: 0.87,  h: 0.77 },
+      enemy_knight_black:  { cx: 0.55,  foot: 0.87,  h: 0.77 },
     },
     ENEMY_TILES: 1.15,    // ザコ敵スプライトの描画高さ(タイル単位)
     BOSS_TILES_PLUS: 0.4, // ボススプライトの描画高さ = (ボスの高さタイル数 + これ) × TILE

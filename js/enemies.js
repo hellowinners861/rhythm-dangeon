@@ -440,7 +440,11 @@ const Enemies = (() => {
   }
 
   // スプライトキーの例外表(kind→Spritesキー)。省略時は "enemy_" + kind とみなす。
-  const ENEMY_SPRITE_KEY = { redslime: "enemy_slime_red" };
+  const ENEMY_SPRITE_KEY = {
+    redslime: "enemy_slime_red",
+    goldbat: "enemy_bat_gold",
+    blackknight: "enemy_knight_black",
+  };
 
   function drawEnemy(g, e, cur) {
     const cx = sx(e.x), cy = sy(e.y);
@@ -490,14 +494,26 @@ const Enemies = (() => {
     const sprEntry = (typeof Sprites !== "undefined") ? Sprites.getEntry(sprKey) : null;
 
     if (sprEntry) {
-      // --- スプライト描画(不透明box基準。テレグラフと同じ拡大率scaleを適用) ---
-      const box = sprEntry.box;
-      const boxH = box.maxy - box.miny + 1;
+      // --- スプライト描画(テレグラフと同じ拡大率scaleを適用) ---
+      // 手動アンカー(CONFIG.SPRITE.ANCHORS)があればそれを使う(騎士など砂埃でboxが破綻する画像用)。
+      // 無ければ不透明box基準。
+      const iw = sprEntry.canvas.width, ih = sprEntry.canvas.height;
+      const anc = (CONFIG.SPRITE.ANCHORS && CONFIG.SPRITE.ANCHORS[sprKey]) || null;
       const drawH = CONFIG.SPRITE.ENEMY_TILES * TILE * scale;
-      const spScale = drawH / boxH;
-      const srcCx = (box.minx + box.maxx + 1) / 2;
-      const srcFootY = box.maxy + 1;               // box下端(接地用)
-      const srcMidY = (box.miny + box.maxy + 1) / 2; // box中心(浮遊用)
+      let spScale, srcCx, srcFootY, srcMidY;
+      if (anc) {
+        spScale = drawH / (anc.h * ih);
+        srcCx = anc.cx * iw;
+        srcFootY = anc.foot * ih;
+        srcMidY = (anc.foot - anc.h / 2) * ih;
+      } else {
+        const box = sprEntry.box;
+        const boxH = box.maxy - box.miny + 1;
+        spScale = drawH / boxH;
+        srcCx = (box.minx + box.maxx + 1) / 2;
+        srcFootY = box.maxy + 1;               // box下端(接地用)
+        srcMidY = (box.miny + box.maxy + 1) / 2; // box中心(浮遊用)
+      }
       // 地上敵:box下端を接地ライン(タイル下端)に合わせる / 飛行敵:box中心をタイル中心に合わせる
       const anchorY = e.fly ? cy : (cy + TILE * 0.5);
       const srcAnchorY = e.fly ? srcMidY : srcFootY;

@@ -624,9 +624,17 @@ const Player = (() => {
     g.globalAlpha = bodyAlpha;
 
     // 体+目:スプライトがあれば画像描画、無ければ従来の円+目にフォールバック。
-    // キーは attack.dur>0(攻撃モーション中)で idle/attack を切り替える。
-    const sprKey = "player_" + charId + "_" + (attack.dur > 0 ? "attack" : "idle");
-    const sprEntry = (typeof Sprites !== "undefined") ? Sprites.getEntry(sprKey) : null;
+    // ポーズ選択: 攻撃モーション中=attack > 横移動中(move)=run > それ以外=idle。
+    // runが無いキャラ(ソードマン等)はidleへフォールバックする。
+    let pose = "idle";
+    if (attack.dur > 0) pose = "attack";
+    else if (state === "move") pose = "run";
+    let sprKey = "player_" + charId + "_" + pose;
+    let sprEntry = (typeof Sprites !== "undefined") ? Sprites.getEntry(sprKey) : null;
+    if (!sprEntry && pose === "run") {
+      sprKey = "player_" + charId + "_idle";
+      sprEntry = (typeof Sprites !== "undefined") ? Sprites.getEntry(sprKey) : null;
+    }
 
     if (sprEntry) {
       // --- スプライト描画 ---
