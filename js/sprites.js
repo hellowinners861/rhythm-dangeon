@@ -21,6 +21,12 @@ const Sprites = (() => {
     enemy_slime_red:    "assets/enemy_slime_red.png",
     enemy_bat:          "assets/enemy_bat.png",
     boss_silencer_idle: "assets/boss_silencer_idle.png",
+    // 走りポーズ(横移動中に表示)+敵3種
+    player_rat_run:     "assets/player_rat_run.png",
+    player_gun_run:     "assets/player_gun_run.png",
+    enemy_bat_gold:     "assets/enemy_bat_gold.png",
+    enemy_knight:       "assets/enemy_knight.png",
+    enemy_knight_black: "assets/enemy_knight_black.png",
   };
 
   // per-imageクロマキーのデフォルト値(省略時)
