@@ -30,6 +30,7 @@ const Conductor = (() => {
   let totalBeats = 0;     // 曲の総拍数(譜面ループの基準)
   let songLoaded = false; // buffer のデコードに成功したか
   let songMode = false;   // 現在楽曲モードで走っているか
+  let pausedBeat = 0;     // pauseSongで保存した中断時の拍位置(resumeSongで続きから再開するため)
 
   // 曲バッファのキャッシュ(id→{buffer,totalBeats})。2回目以降のloadSongは再デコードしない(曲選択・Step9改修)。
   const songCache = new Map();
@@ -145,6 +146,7 @@ const Conductor = (() => {
     startTime = SFX.ctx.currentTime + (startDelay || 0);
     running = true;
     songMode = true;
+    pausedBeat = 0;
     judgedGrid = new Set();
     // 楽曲モードではメトロノームスケジューラは使わない(クリック音を鳴らさない)
     // ループ区間を「offset〜offset+総拍数ぶん」に固定し、譜面ループ(beat % totalBeats)と
@@ -157,10 +159,49 @@ const Conductor = (() => {
     });
   }
 
+  // 楽曲モードを一時停止する(タブ離脱時のポーズ用)。
+  // 現在の拍位置(pausedBeat)を保存してからソースを止める。戻り値は保存した pausedBeat。
+  // 楽曲モードでない(メトロノーム/未再生)ときは何もせず null を返す。
+  function pauseSong() {
+    if (!songMode || !buffer || !song) return null;
+    const pb = currentBeat();
+    stop();          // ソース停止・running=false・songMode=false(この中で pausedBeat は0に戻る)
+    pausedBeat = pb; // stop後に保存し直して上書きを防ぐ
+    return pb;
+  }
+
+  // 一時停止した楽曲を pausedBeat から続きで再開する(startDelay ぶん未来を再開時刻にする)。
+  // 拍の連続性: 再開完了時刻 when に currentBeat()===pausedBeat となるよう startTime を逆算する。
+  // 音声側は譜面ループ内の対応位置(chartPos)から再生を始め、拍と音の周期を一致させる。
+  function resumeSong({ startDelay } = {}) {
+    if (!buffer || !song) return;
+    const pb = pausedBeat; // stop() で pausedBeat が0に戻るため先に退避
+    stop();
+    bpm = song.bpm;
+    offset = song.offset || 0;
+    const beatSec = 60 / bpm;
+    const when = SFX.ctx.currentTime + (startDelay || 0);
+    // 拍0の基準時刻。when 時点で currentBeat()===pb になる。
+    startTime = when - offset - pb * beatSec;
+    running = true;
+    songMode = true;
+    // judgedGrid は維持する(過去拍は判定済みのまま。新規Setにしない)。
+    if (!judgedGrid) judgedGrid = new Set();
+    // 音声の再開位置:譜面ループ(totalBeats)で折り返した拍を秒に直し、offset を足したところから鳴らす。
+    const chartPos = ((pb % totalBeats) + totalBeats) % totalBeats;
+    sourceNode = SFX.playBuffer(buffer, when, {
+      loop: true,
+      loopStart: offset,
+      loopEnd: offset + totalBeats * beatSec,
+      startOffset: offset + chartPos * beatSec,
+    });
+  }
+
   // 停止(メトロノーム・楽曲の両方に対応)。
   function stop() {
     running = false;
     songMode = false;
+    pausedBeat = 0;
     if (schedulerId !== null) {
       clearInterval(schedulerId);
       schedulerId = null;
@@ -242,6 +283,8 @@ const Conductor = (() => {
     loadSong,
     startSong,
     stopSong,
+    pauseSong,
+    resumeSong,
     currentBeat,
     chartBeat,
     sectionAt,

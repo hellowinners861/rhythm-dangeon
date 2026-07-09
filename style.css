@@ -519,6 +519,27 @@ html, body {
   color: #8f9bbf;
 }
 
+/* ---- ステージ一時停止(タブ離脱) ---- */
+#pause-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 70;               /* ストーリー(60)より前・縦持ち警告(100)より後 */
+  display: flex;             /* overlay-modal は表示指定を持たないため flex を明示 */
+  pointer-events: auto;
+}
+.pause-title {
+  font-size: 20px;
+  font-weight: bold;
+  color: #e8ecff;
+  text-align: center;
+}
+.pause-warning {
+  font-size: 12px;
+  color: #ff8a9a;            /* 赤系:コイン放棄の注意書き */
+  text-align: center;
+  line-height: 1.5;
+}
+
 /* ---- ストーリー(章間テキスト演出) ---- */
 #story-panel {
   position: fixed;

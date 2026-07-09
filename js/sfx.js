@@ -30,6 +30,11 @@ const SFX = (() => {
     return ctx.resume();
   }
 
+  // AudioContextの一時停止(タブ離脱時に音を止める)。ctx.suspend の薄いラッパ。
+  function suspend() {
+    return ctx.suspend();
+  }
+
   // メトロノーム音。必ず atTime(AudioContext絶対時刻)を指定して予約再生する。
   // accent(小節頭)は高い音。
   function click(atTime, accent) {
@@ -379,6 +384,7 @@ const SFX = (() => {
   // opts.loopStart / loopEnd(秒)指定時はその区間で周回する
   // (譜面ループ chartBeat = beat % totalBeats と音声の周期を一致させるため)。
   // opts.gain(0..1)指定時は bgmGain の手前に個別GainNodeを挟んで音量を絞る(ホームBGM等・仮組み)。
+  // opts.startOffset(秒)指定時はバッファのその位置から再生を始める(ポーズからの途中再開用)。
   function playBuffer(buffer, atTime, opts) {
     const src = ctx.createBufferSource();
     src.buffer = buffer;
@@ -394,12 +400,14 @@ const SFX = (() => {
     } else {
       src.connect(bgmGain);
     }
-    src.start(atTime || ctx.currentTime);
+    const st = atTime || ctx.currentTime;
+    if (opts && typeof opts.startOffset === "number") src.start(st, opts.startOffset);
+    else src.start(st);
     return src;
   }
 
   return {
-    ctx, resume, click, judge, coin, setVolume, playBuffer, bgmGain, seGain,
+    ctx, resume, suspend, click, judge, coin, setVolume, playBuffer, bgmGain, seGain,
     jump, dash, pickup, hurt, enemyDie, telegraph, bossDie, fever, ui,
   };
 })();

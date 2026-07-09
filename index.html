@@ -154,6 +154,18 @@
     </div>
   </div>
 
+  <!-- ステージ一時停止(タブ離脱時。game.jsが制御。戻るとコインは持ち帰れない旨を明示) -->
+  <div id="pause-panel" class="hidden overlay-modal">
+    <div class="modal-box modal-box-small">
+      <div class="pause-title">一時停止中</div>
+      <div class="modal-btn-row">
+        <button id="btn-pause-resume" class="ui-btn">▶ 再開する</button>
+        <button id="btn-pause-quit" class="ui-btn">準備画面に戻る</button>
+      </div>
+      <div id="pause-warning" class="pause-warning"></div>
+    </div>
+  </div>
+
   <!-- ストーリー(章間テキスト演出。game.jsが制御。タップで次へ) -->
   <div id="story-panel" class="hidden">
     <div id="story-text" class="story-text"></div>
