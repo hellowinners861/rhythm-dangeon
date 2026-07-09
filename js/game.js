@@ -27,6 +27,10 @@ const Game = (() => {
 
   let canvas, g;
   let scene = "title";
+  // タブ離脱ポーズ用:visible復帰時のSFX.resumeがiOS等で拒否された場合に、
+  // 次のpointerdown(ユーザー操作)で再度resumeを試みるためのフラグ。
+  let resumeOnNextPointer = false;
+  let sceneBeforePause = null; // ポーズ直前のシーン(現状は "stage" 固定。復帰処理の明示用)
 
   // タイトル背景の音符パーティクル(拍とは無関係にゆっくり漂う演出のみ。Step9)
   // 位置は演出用の乱数シードから時刻の関数として求める(状態更新を持たない)。
@@ -138,6 +142,10 @@ const Game = (() => {
     el.controls = document.getElementById("controls");
     el.storyPanel = document.getElementById("story-panel");
     el.storyText = document.getElementById("story-text");
+    el.pausePanel = document.getElementById("pause-panel");
+    el.pauseWarning = document.getElementById("pause-warning");
+    el.btnPauseResume = document.getElementById("btn-pause-resume");
+    el.btnPauseQuit = document.getElementById("btn-pause-quit");
 
     SAVE.load();
     // スプライト(プレイヤー画像)を先読みロード(await不要。ロードでき次第 Player.draw が画像に切替)。
@@ -210,6 +218,18 @@ const Game = (() => {
       SFX.ui();
       saveCalibration();
     });
+    // ポーズ画面(タブ離脱時)のボタン。
+    el.btnPauseResume.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      SFX.ui();
+      resumePausedStage();
+    });
+    el.btnPauseQuit.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      SFX.ui("back");
+      quitPausedStage();
+    });
+
     // スライダー:変更は即Conductorへ反映(手動調整は即保存)
     el.slider.addEventListener("input", () => {
       const ms = parseInt(el.slider.value, 10) || 0;
@@ -219,6 +239,20 @@ const Game = (() => {
 
     // モード選択/出撃準備/オプション/曲視聴のDOMオーバーレイ(home.js)
     if (typeof Home !== "undefined") Home.init();
+
+    // タブ切替(visibilitychange):離脱で音を止め、ステージ中はポーズへ。復帰で音を戻す。
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") onDocumentHidden();
+      else onDocumentVisible();
+    });
+    // visible復帰時のresumeがiOS等で拒否された場合の保険:次のpointerdownで再度resumeを試みる。
+    // captureで確実に拾い、一度成功したら解除する。
+    document.addEventListener("pointerdown", () => {
+      if (resumeOnNextPointer) {
+        resumeOnNextPointer = false;
+        SFX.resume();
+      }
+    }, true);
 
     applySceneUI();
     resize();
@@ -435,6 +469,95 @@ const Game = (() => {
     Conductor.start({ bpm: CONFIG.METRONOME.BPM, offset: 0, startDelay: 1.0 });
     resetCalibCollection();
     applySceneUI();
+  }
+
+  // ---- タブ離脱ポーズ(visibilitychange。DESIGN 追補) ----
+  // タブが隠れたとき:全シーンで音を止める。ステージ中はポーズ画面へ移す。
+  function onDocumentHidden() {
+    if (scene === "stage") {
+      // 拍の連続性を保って一時停止(pausedBeatを保存)。ポーズ画面へ。
+      sceneBeforePause = scene;
+      // 楽曲モードでない(ロード失敗のメトロノームフォールバック)ときは pauseSong が null。
+      // その場合もクロックを止めて running=false にする(復帰時は頭から鳴らし直す)。
+      if (Conductor.pauseSong() === null) Conductor.stop();
+      enterPauseScene();
+    } else if (scene === "calibration") {
+      // 較正はメトロノーム。止めておき、復帰時に頭から鳴らし直す。
+      Conductor.stop();
+    } else {
+      // home系・result/gameover等:ホームBGM/ジュークボックスを止める。
+      if (typeof Home !== "undefined") {
+        if (Home.stopHomeBgm) Home.stopHomeBgm();
+        if (Home.stopJukebox) Home.stopJukebox();
+      }
+    }
+    SFX.suspend();
+  }
+
+  // タブが戻ったとき:AudioContextを再開し、シーンに応じて音を戻す。
+  async function onDocumentVisible() {
+    try {
+      await SFX.resume();
+    } catch (e) {
+      /* iOS等で自動resumeが拒否されることがある。次のpointerdownで再試行する。 */
+    }
+    if (SFX.ctx.state !== "running") resumeOnNextPointer = true;
+
+    if (scene === "paused") {
+      // ポーズ画面はボタン(再開する/準備画面に戻る)の操作待ち。ここでは何もしない。
+    } else if (scene === "calibration") {
+      // メトロノームを頭から再開(gotoCalibrationと同じパラメータ)。
+      Conductor.start({ bpm: CONFIG.METRONOME.BPM, offset: 0, startDelay: 1.0 });
+    } else {
+      // home系はhomeBgmの再開を含めてシーンUIを適用し直す。
+      applySceneUI();
+    }
+  }
+
+  // ポーズ画面へ入る(ステージ描画は残し、DOMオーバーレイを半透明黒で被せる)。
+  function enterPauseScene() {
+    scene = "paused";
+    applySceneUI();       // 操作ボタン等を隠す
+    showPauseOverlay();
+  }
+
+  // ポーズオーバーレイを表示。コイン放棄の注意書きに現在の獲得枚数を反映する。
+  function showPauseOverlay() {
+    if (!el.pausePanel) return;
+    const n = (typeof Items !== "undefined") ? Items.stageCoins : 0;
+    if (el.pauseWarning) {
+      el.pauseWarning.textContent =
+        `準備画面に戻ると、このステージで獲得したコイン 💰${n}枚 は持ち帰れません`;
+    }
+    el.pausePanel.classList.remove("hidden");
+  }
+
+  function hidePauseOverlay() {
+    if (el.pausePanel) el.pausePanel.classList.add("hidden");
+  }
+
+  // 「再開する」:pausedBeatから続きで音楽・拍を再開してステージへ戻る。
+  function resumePausedStage() {
+    if (scene !== "paused") return;
+    hidePauseOverlay();
+    sceneBeforePause = null;
+    scene = "stage";
+    if (Conductor.songLoaded) {
+      Conductor.resumeSong({ startDelay: CONFIG.PAUSE.RESUME_DELAY_SEC });
+    } else {
+      // 楽曲ロード失敗時(メトロノームフォールバック)は頭から鳴らし直す。
+      Conductor.start({ bpm: CONFIG.METRONOME.BPM, offset: 0, startDelay: CONFIG.PAUSE.RESUME_DELAY_SEC });
+    }
+    applySceneUI();
+  }
+
+  // 「準備画面に戻る」:Items.settle を呼ばず(コイン放棄)、進行も更新せず出撃準備へ。
+  function quitPausedStage() {
+    if (scene !== "paused") return;
+    hidePauseOverlay();
+    sceneBeforePause = null;
+    Conductor.stop();
+    gotoReady();
   }
 
   function applySceneUI() {

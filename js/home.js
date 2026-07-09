@@ -641,5 +641,5 @@ const Home = (() => {
       .catch((e) => { console.warn("曲視聴の読み込み失敗:", e); return null; });
   }
 
-  return { init, applyScene, stopHomeBgm };
+  return { init, applyScene, stopHomeBgm, stopJukebox };
 })();

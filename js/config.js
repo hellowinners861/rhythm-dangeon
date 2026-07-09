@@ -22,6 +22,10 @@ const CONFIG = {
   // ストーリーパネルの1文字送りの間隔(秒・Step9)
   STORY: { CHAR_INTERVAL_SEC: 0.04 },
 
+  // タブ離脱時の一時停止(visibilitychange対応)。
+  // RESUME_DELAY_SEC=「再開する」を押してから音楽と拍が続きで流れ出すまでの間(秒)。
+  PAUSE: { RESUME_DELAY_SEC: 1.0 },
+
   // 1タイルの論理px(1600×900で横20タイルぶんの視界)
   TILE: 80,
 
