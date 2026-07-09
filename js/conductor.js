@@ -257,5 +257,7 @@ const Conductor = (() => {
     get songLoaded() { return songLoaded; },
     get totalBeats() { return totalBeats; },
     get currentSong() { return song; },
+    // 現在ロード済みの曲のAudioBuffer(ホームBGM用。songCacheの実体をそのまま返す)。未ロードならnull。
+    get songBuffer() { return songLoaded ? buffer : null; },
   };
 })();

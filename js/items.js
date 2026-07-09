@@ -186,10 +186,12 @@ const Items = (() => {
 
   // ステージ終了時の持ち帰り処理。cleared=true(クリア)なら全額、
   // false(ゲームオーバー)なら CONFIG.ECONOMY.GAMEOVER_COIN_RATE(端数切り捨て)。
+  // mul=追加倍率(曲内クリア時の2倍等。省略時1。ゲームオーバー時は呼び出し側で渡さない=1のまま)。
   // SAVE.data.coins へ加算・保存し、実際に持ち帰った枚数を返す。
-  function settle(cleared) {
+  function settle(cleared, mul) {
     const rate = cleared ? 1 : CONFIG.ECONOMY.GAMEOVER_COIN_RATE;
-    const gained = Math.floor(stageCoins * rate);
+    const m = typeof mul === "number" ? mul : 1;
+    const gained = Math.floor(stageCoins * rate * m);
     SAVE.data.coins = (SAVE.data.coins || 0) + gained;
     SAVE.save();
     return gained;

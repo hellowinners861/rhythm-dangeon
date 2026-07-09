@@ -241,6 +241,8 @@ const Game = (() => {
 
   // ステージ用の時計を開始する。楽曲がロード済みなら曲を、失敗時はメトロノームを頭から。
   function startStageConductor() {
+    // ホームBGM(仮組み)とステージ曲が被らないよう、開始前に必ず止める
+    if (typeof Home !== "undefined" && Home.stopHomeBgm) Home.stopHomeBgm();
     if (Conductor.songLoaded) {
       Conductor.startSong({ startDelay: 1.0 });
     } else {
@@ -349,7 +351,9 @@ const Game = (() => {
   function gotoResult() {
     scene = "result";
     Conductor.stop();
-    resultCoins = (typeof Items !== "undefined") ? Items.settle(true) : 0;
+    // 曲内クリア(曲が終わる前にゴール)はコイン持ち帰りを倍率適用(DESIGN §4・経済調整)
+    const coinMul = songClear ? CONFIG.ECONOMY.SONG_CLEAR_COIN_MUL : 1;
+    resultCoins = (typeof Items !== "undefined") ? Items.settle(true, coinMul) : 0;
     // ボスクリア:撃破ボーナスコインを加算(DESIGN §10)。
     if (bossClear) {
       const kind = ["silencer", "beatcrusher", "mutos"][selChapter - 1];
@@ -409,6 +413,8 @@ const Game = (() => {
   function gotoCalibration() {
     if (scene === "title") return;
     scene = "calibration";
+    // 較正シーンはメトロノームと被るためホームBGM(仮組み)を止める
+    if (typeof Home !== "undefined" && Home.stopHomeBgm) Home.stopHomeBgm();
     // 較正は従来どおりメトロノームを使う(曲が鳴っていれば止めて切り替える)
     Conductor.start({ bpm: CONFIG.METRONOME.BPM, offset: 0, startDelay: 1.0 });
     resetCalibCollection();
@@ -1169,11 +1175,11 @@ const Game = (() => {
       g.fillText(`♪ ${songTitle}`, VW / 2, 284);
     }
 
-    // 曲内クリアボーナス(曲が終わる前にゴール)。DESIGN §4
+    // 曲内クリアボーナス(曲が終わる前にゴール)。コイン持ち帰り2倍。DESIGN §4・経済調整
     if (songClear) {
       g.fillStyle = "#5adf7a";
       g.font = "bold 28px sans-serif";
-      g.fillText("♪ 曲内クリア! ♪", VW / 2, 314);
+      g.fillText("♪ 曲内クリア! コイン2倍! ♪", VW / 2, 314);
     }
 
     // 判定内訳

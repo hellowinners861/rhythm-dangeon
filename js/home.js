@@ -18,6 +18,12 @@ const Home = (() => {
   let jukeboxSource = null;
   let jukeboxPlayingId = null;
 
+  // ホームBGM(仮組み)。専用曲が無いので選択中の曲を小さめの音量でループ再生する(DESIGN仮組み・改修バッチ)。
+  // モード選択/出撃準備/オプションでのみ再生。曲はConductor.loadSongのキャッシュ(songBuffer)を使う。
+  let homeBgmSource = null;
+  let homeBgmSongId = null;   // 現在再生中の曲id(切替検出用)
+  let homeBgmToken = 0;       // シーン遷移・曲切替でロード待ちのplay()を無効化するためのガード
+
   // 出撃準備の曲選択:読み込み中は「いざ!」を無効化する(改修バッチ・Step9)。
   // songLoadTokenは選択が連続で切り替わった時に古いloadSongの完了を無視するためのガード。
   let songLoadToken = 0;
@@ -69,18 +75,36 @@ const Home = (() => {
     wire();
   }
 
-  // pointerdownを共通ハンドリング(較正パネル等の既存ボタンと同じ流儀)。
-  // kindでボタンの種類ごとにSFXを鳴らし分ける(改修バッチ・Step9)。kind省略時は"select"扱い(後方互換)。
-  // kindを関数で渡すと、タップ時点の状態(所持コイン等)で音を出し分けられる(購入成立/失敗など)。
+  // タップの共通ハンドリング。kindでボタンの種類ごとにSFXを鳴らし分ける(改修バッチ・Step9)。
+  // kind省略時は"select"扱い(後方互換)。kindを関数で渡すと、タップ時点の状態で音を出し分けられる。
+  //
+  // 【重要】pointerdown即時実行ではなく「ほぼ動かさずにpointerupしたときだけ実行」する。
+  // リスト(ショップ・装備ピッカー)がスクロール可能になったため、行の上でスクロールの
+  // ドラッグを始めた瞬間に購入・装備が誤発動するのを防ぐ。TAP_SLOP_PXを超える移動や
+  // ブラウザのスクロール開始(pointercancel)でタップはキャンセルされる。
+  const TAP_SLOP_PX = 12;
   function tap(elm, fn, kind) {
     if (!elm) return;
+    let pid = null, px = 0, py = 0;
     elm.addEventListener("pointerdown", (e) => {
       e.preventDefault();
+      pid = e.pointerId; px = e.clientX; py = e.clientY;
+    }, { passive: false });
+    elm.addEventListener("pointermove", (e) => {
+      if (pid !== e.pointerId) return;
+      if (Math.abs(e.clientX - px) > TAP_SLOP_PX || Math.abs(e.clientY - py) > TAP_SLOP_PX) {
+        pid = null; // ドラッグ(スクロール操作)とみなしてキャンセル
+      }
+    });
+    elm.addEventListener("pointerup", (e) => {
+      if (pid !== e.pointerId) return;
+      pid = null;
       if (typeof SFX !== "undefined" && SFX.ui) {
         SFX.ui(typeof kind === "function" ? kind() : kind);
       }
       fn(e);
-    }, { passive: false });
+    });
+    elm.addEventListener("pointercancel", () => { pid = null; });
   }
 
   function wire() {
@@ -140,6 +164,10 @@ const Home = (() => {
     else if (scene === "ready") showReady();
     else if (scene === "options") showOptions();
     else if (scene === "jukebox") showJukebox();
+    // ホームBGM(仮組み):モード選択/出撃準備/オプションでのみ再生。
+    // それ以外(ステージ・較正・曲視聴・リザルト等)へ抜けたら止める。
+    if (scene === "modeselect" || scene === "ready" || scene === "options") startHomeBgm();
+    else stopHomeBgm();
   }
 
   function show(id) { const e = $(id); if (e) e.classList.remove("hidden"); }
@@ -206,6 +234,45 @@ const Home = (() => {
     SAVE.save();
     renderSongSlots();
     ensureSelectedSongLoaded();
+    // 選択曲を切り替えたら、ホームBGMも新しい曲で流し直す(仮組み)。
+    startHomeBgm();
+  }
+
+  // --- ホームBGM(仮組み。DESIGN仮組み・改修バッチ) ---
+  // 選択中の曲(未選択ならSONGS[0])を CONFIG.HOME_BGM.GAIN の音量でループ再生する。
+  function homeBgmSongOrDefault() {
+    const songs = (typeof SONGS !== "undefined") ? SONGS : [];
+    if (!songs.length) return null;
+    const sid = SAVE.data.selectedSong || "song01";
+    return songs.find((s) => s.id === sid) || songs[0];
+  }
+
+  function startHomeBgm() {
+    const song = homeBgmSongOrDefault();
+    if (!song || typeof Conductor === "undefined" || !Conductor.loadSong) return;
+    if (homeBgmSource && homeBgmSongId === song.id) return; // 既に同じ曲を再生中
+    stopHomeBgm();
+    const myToken = ++homeBgmToken;
+    const play = () => {
+      if (myToken !== homeBgmToken) return; // 曲切替・シーン遷移で無効化された古い再生要求
+      const buf = Conductor.songBuffer;
+      if (!buf) return;
+      homeBgmSource = SFX.playBuffer(buf, SFX.ctx.currentTime, { loop: true, gain: CONFIG.HOME_BGM.GAIN });
+      homeBgmSongId = song.id;
+    };
+    // Conductor.loadSongは曲idごとにキャッシュされるため、ロード済みなら即resolveする(改修バッチ)。
+    if (Conductor.currentSong && Conductor.currentSong.id === song.id && Conductor.songLoaded) play();
+    else Conductor.loadSong(song).then(play);
+  }
+
+  // ホームBGMを停止(ステージ開始/曲視聴/較正シーンへ移る際に呼ぶ)。ロード待ち中の再生予約も無効化する。
+  function stopHomeBgm() {
+    homeBgmToken++;
+    if (homeBgmSource) {
+      try { homeBgmSource.stop(); } catch (e) { /* 既に停止済み */ }
+      homeBgmSource = null;
+    }
+    homeBgmSongId = null;
   }
 
   // 選択中の曲をConductorへ先行ロードする。ロード完了まで「いざ!」を無効化する。
@@ -541,6 +608,7 @@ const Home = (() => {
       return;
     }
     stopJukebox();
+    stopHomeBgm(); // 曲視聴とホームBGMが被らないよう止める
     jukeboxPlayingId = song.id;
     renderJukebox();
     loadJukeboxBuffer(song).then((buffer) => {
@@ -573,5 +641,5 @@ const Home = (() => {
       .catch((e) => { console.warn("曲視聴の読み込み失敗:", e); return null; });
   }
 
-  return { init, applyScene };
+  return { init, applyScene, stopHomeBgm };
 })();

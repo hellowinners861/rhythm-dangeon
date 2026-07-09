@@ -175,6 +175,21 @@ html, body {
   padding: 8px 16px 10px;
   pointer-events: auto;
   touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* 全要素に touch-action: none を掛けている冒頭の * ルール(ゲーム側のタップ精度優先のため)が
+   ホーム画面配下の子要素(ボタン・行など)にもそのまま効いてしまい、
+   「.item-row 等の上ではスクロールできない」不具合の原因だった。
+   touch-action は継承されず、タッチ開始点からルート方向の祖先すべての交差(AND)で有効値が決まるため、
+   スクロール可能な祖先(pan-y)があっても子要素側が none だとスクロールが無効化されてしまう。
+   ホーム画面(モーダル含む)配下は丸ごと pan-y へ上書きし、タップ判定はそのまま機能させる
+   (pan-yはドラッグ時のみ縦スクロールを許可し、その場での単純タップの検出は妨げない)。
+   スライダー(input[type="range"])は個別に touch-action: none を指定しており、
+   より詳細度の高いセレクタなのでこの上書きの影響を受けない。 */
+.home-screen, .home-screen *,
+.modal-box, .modal-box * {
+  touch-action: pan-y;
 }
 
 .home-title {
@@ -354,6 +369,7 @@ html, body {
   flex-direction: column;
   gap: 10px;
   touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
 }
 .modal-box-large { width: min(92%, 560px); }
 .modal-box-small { width: min(78%, 300px); text-align: center; font-size: 14px; }
@@ -378,6 +394,7 @@ html, body {
   overflow-y: auto;
   max-height: 55vh;
   touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
 }
 .item-row {
   display: flex;
