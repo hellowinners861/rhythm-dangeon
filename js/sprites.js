@@ -43,6 +43,8 @@ const Sprites = (() => {
     bg_moon:   { path: "assets/bg_moon.png",   raw: true,    resize: { w: 1376, h: 768 }, patch: { dst: [0.86, 0.78, 0.96, 0.92], srcX: 0.66 } },
     bg_forest: { path: "assets/bg_forest.png", skyKey: true, resize: { w: 1376, h: 768 }, patch: { dst: [0.86, 0.78, 0.96, 0.92], srcX: 0.66 } },
     bg_city:   { path: "assets/bg_city.png",   raw: true,    resize: { w: 1376, h: 768 }, patch: { dst: [0.86, 0.78, 0.96, 0.92], srcX: 0.66 } },
+    //   bg_castle: 3章の中景(嵐の魔王城)。渦雲の空ごと1枚で使うため不透明のまま raw で使う。
+    bg_castle: { path: "assets/bg_castle.png", raw: true,    resize: { w: 1376, h: 768 }, patch: { dst: [0.86, 0.78, 0.96, 0.92], srcX: 0.66 } },
     // ゴースト敵(グリーンバック・✦あり。既定則 "enemy_"+kind で自動適用される)
     enemy_ghost: "assets/enemy_ghost.png",
   };

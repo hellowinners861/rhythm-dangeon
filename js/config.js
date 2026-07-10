@@ -163,7 +163,7 @@ const CONFIG = {
     { id: 2, name: "ノイズの機械都市", bg: ["#0a0a12", "#33251a"], tile: "#4d3a2a", tileTop: "#705a3f", variantRate: 0.30, densityMul: 1.15, tileSprite: "tile_city",
       bgLayers: [ { sprite: "bg_city", parallax: 0.25 } ] },
     { id: 3, name: "音喰らいの城",    bg: ["#0a0512", "#2a1233"], tile: "#3a2a4d", tileTop: "#5a3f70", variantRate: 0.50, densityMul: 1.3,  tileSprite: "tile_castle",
-      bgLayers: [ { sprite: "bg_moon", parallax: 0.03 } ] },
+      bgLayers: [ { sprite: "bg_castle", parallax: 0.25 } ] },
   ],
 
   // 経済(DESIGN §9/§11)。ゲームオーバー時に持ち帰るコインの割合(端数切り捨て)。
