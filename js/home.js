@@ -172,14 +172,14 @@ const Home = (() => {
   }
 
   // --- シーン表示切替(game.js の applySceneUI() から呼ばれる) ---
-  function hideAll() {
+  function hideAll(nextScene) {
     el.screens.forEach((s) => s.classList.add("hidden"));
     // 曲視聴シーンから離れる時は再生を止める
-    if (typeof Game !== "undefined" && Game.scene !== "jukebox") stopJukebox();
+    if (nextScene !== "jukebox") stopJukebox();
   }
 
   function applyScene(scene) {
-    hideAll();
+    hideAll(scene);
     if (scene === "modeselect") showModeSelect();
     else if (scene === "gameselect") showGameSelect();
     else if (scene === "ready") showReady();
@@ -536,6 +536,13 @@ const Home = (() => {
     el.readyMessage.classList.remove("hidden");
     if (readyMsgTimer) clearTimeout(readyMsgTimer);
     readyMsgTimer = setTimeout(() => el.readyMessage.classList.add("hidden"), 2200);
+  }
+
+  // game.js からも出撃準備画面の通知を出せるようにする公開用ラッパー。
+  // 以前 return だけ showReadyMessage を参照していたため、home.js の評価時に
+  // ReferenceError となり、後続の game.js 初期化まで止まって白画面化していた。
+  function showReadyMessage(text) {
+    flashReadyMessage(text);
   }
 
   function ensureEquipArrays() {
