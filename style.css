@@ -178,14 +178,21 @@ html, body {
   -webkit-overflow-scrolling: touch;
 }
 
-/* 出撃準備の背景画像(隠れ家の部屋)。白文字のUIが読めるよう暗色グラデーションを重ねる。
+/* ホーム系4画面(モード選択/出撃準備/オプション/曲視聴)の共通背景画像(草原で遊ぶ3キャラ)。
+   明るい絵なので、白文字のUIが読めるよう強めの暗色グラデーションを重ねる。
    ✦アーティファクトはファイル側で修復済み(CSS背景は読み込み時パッチが効かないため)。 */
-#screen-ready {
+#screen-modeselect, #screen-ready, #screen-options, #screen-jukebox {
   background:
-    linear-gradient(rgba(6, 7, 14, 0.60), rgba(6, 7, 14, 0.78)),
-    url("assets/bg_ready.png") center / cover no-repeat,
+    linear-gradient(rgba(6, 7, 14, 0.66), rgba(6, 7, 14, 0.80)),
+    url("assets/bg_home.png") center / cover no-repeat,
     rgba(6, 7, 14, 0.97);
 }
+
+/* 全画面中はiOSのシステムUI(左上の全画面終了ボタン・上端ジェスチャ領域)が
+   「◀ モード選択へ」等の上部ボタンのタップを奪うため、ヘッダーごと下へ逃がす。
+   is-fullscreen クラスは game.js が fullscreenchange で :root に付け外しする。 */
+:root.is-fullscreen .home-screen { padding-top: 48px; }
+:root.is-fullscreen #topbar { top: 48px; }
 
 /* 全要素に touch-action: none を掛けている冒頭の * ルール(ゲーム側のタップ精度優先のため)が
    ホーム画面配下の子要素(ボタン・行など)にもそのまま効いてしまい、
