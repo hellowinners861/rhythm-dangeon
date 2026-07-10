@@ -637,7 +637,8 @@ const Home = (() => {
     return fetch(song.audio)
       .then((res) => res.arrayBuffer())
       .then((arr) => SFX.ctx.decodeAudioData(arr))
-      .then((buf) => { jukeboxBuffers[song.id] = buf; return buf; })
+      // trimSec指定曲は先頭を切り落とす(ステージ側と同じ聴こえ方にする)
+      .then((buf) => { const t = song.trimSec ? SFX.trimBuffer(buf, song.trimSec) : buf; jukeboxBuffers[song.id] = t; return t; })
       .catch((e) => { console.warn("曲視聴の読み込み失敗:", e); return null; });
   }
 

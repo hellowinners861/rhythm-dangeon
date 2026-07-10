@@ -35,6 +35,21 @@ const SFX = (() => {
     return ctx.suspend();
   }
 
+  // デコード済みAudioBufferの先頭 sec 秒を切り落とした新しいバッファを返す(song03の冒頭カット用)。
+  // ffmpeg等が使えない環境でも「毎回◯秒目から再生」を全経路(ステージ/曲視聴/ホームBGM/ポーズ再開)で
+  // 一貫させるため、再生位置ではなくバッファ自体を短くする。sec<=0 ならそのまま返す。
+  function trimBuffer(buffer, sec) {
+    if (!sec || sec <= 0) return buffer;
+    const sr = buffer.sampleRate;
+    const startFrame = Math.min(buffer.length - 1, Math.round(sec * sr));
+    const len = Math.max(1, buffer.length - startFrame);
+    const out = ctx.createBuffer(buffer.numberOfChannels, len, sr);
+    for (let c = 0; c < buffer.numberOfChannels; c++) {
+      out.copyToChannel(buffer.getChannelData(c).subarray(startFrame), c, 0);
+    }
+    return out;
+  }
+
   // メトロノーム音。必ず atTime(AudioContext絶対時刻)を指定して予約再生する。
   // accent(小節頭)は高い音。
   function click(atTime, accent) {
@@ -407,7 +422,7 @@ const SFX = (() => {
   }
 
   return {
-    ctx, resume, suspend, click, judge, coin, setVolume, playBuffer, bgmGain, seGain,
+    ctx, resume, suspend, trimBuffer, click, judge, coin, setVolume, playBuffer, bgmGain, seGain,
     jump, dash, pickup, hurt, enemyDie, telegraph, bossDie, fever, ui,
   };
 })();
