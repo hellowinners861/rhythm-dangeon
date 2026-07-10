@@ -4,7 +4,7 @@
 
 const SAVE = (() => {
   const KEY = "rhythm-dungeon-save";
-  const VERSION = 5;
+  const VERSION = 6;
   const SLOT_COUNT = 3;
 
   // 章進行の初期値(DESIGN §10・Step8)。
@@ -15,6 +15,8 @@ const SAVE = (() => {
       clearedBoss: [false, false, false],
       seenOpening: false,
       seenChapterIntro: [false, false, false],
+      endlessUnlocked: false,
+      seenEndlessUnlock: false,
     };
   }
 
@@ -57,6 +59,8 @@ const SAVE = (() => {
     if (Array.isArray(p.clearedBoss)) for (let i = 0; i < 3; i++) d.clearedBoss[i] = !!p.clearedBoss[i];
     d.seenOpening = !!p.seenOpening;
     if (Array.isArray(p.seenChapterIntro)) for (let i = 0; i < 3; i++) d.seenChapterIntro[i] = !!p.seenChapterIntro[i];
+    d.endlessUnlocked = !!p.endlessUnlocked || !!d.clearedBoss[2];
+    d.seenEndlessUnlock = !!p.seenEndlessUnlock;
     return d;
   }
 

@@ -54,6 +54,7 @@ const Home = (() => {
     el.readyMessage = $("ready-message");
     el.chapterTabs = $("chapter-tabs");
     el.stageButtons = $("stage-buttons");
+    el.btnEndless = $("btn-endless");
     el.charSlots = $("char-slots");
     el.equipSlots = $("equip-slots");
     el.btnOpenShop = $("btn-open-shop");
@@ -133,6 +134,7 @@ const Home = (() => {
     tap(el.btnReadyBack, () => Game._gotoModeSelect(), "back");
     tap(el.btnOpenShop, () => openShop());
     tap(el.btnLaunch, () => { if (!el.btnLaunch.disabled) Game._gotoStage(); }, "launch");
+    if (el.btnEndless) tap(el.btnEndless, () => Game._gotoEndless(), "launch");
 
     tap(el.btnEquipPickerClose, () => closeModal("screen-equip-picker"), "back");
     tap(el.btnShopClose, () => closeModal("screen-shop"), "back");
@@ -272,6 +274,7 @@ const Home = (() => {
   function renderReady() {
     if (el.readyCoinCount) el.readyCoinCount.textContent = String(SAVE.data.coins);
     renderStageSelect();
+    renderEndlessButton();
     renderCharSlots();
     renderEquipSlots();
     renderSongSlots();
@@ -400,6 +403,17 @@ const Home = (() => {
       if (s === 5) return !!pr.clearedBoss[c - 1];
     }
     return false;
+  }
+
+
+  function endlessUnlocked() {
+    const pr = progress();
+    return !!(pr.endlessUnlocked || (pr.clearedBoss && pr.clearedBoss[2]));
+  }
+
+  function renderEndlessButton() {
+    if (!el.btnEndless) return;
+    el.btnEndless.classList.toggle("hidden", !endlessUnlocked());
   }
 
   function renderStageSelect() {
@@ -804,5 +818,5 @@ const Home = (() => {
       .catch((e) => { console.warn("曲視聴の読み込み失敗:", e); return null; });
   }
 
-  return { init, applyScene, stopHomeBgm, stopJukebox };
+  return { init, applyScene, stopHomeBgm, stopJukebox, showReadyMessage };
 })();

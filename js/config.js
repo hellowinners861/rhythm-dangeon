@@ -19,6 +19,16 @@ const CONFIG = {
   // FEVER_FLASH_SEC: フィーバー突入時の画面フラッシュ演出の長さ(秒・Step9)
   COMBO: { FEVER_COMBO: 16, FEVER_FLASH_SEC: 0.35 },
 
+  // エンドレスモード。3章ボス撃破後に解放。HP0まで続くためゴール判定は使わない。
+  ENDLESS: {
+    UNLOCK_CHAPTER: 3,
+    HEART_COMBO_STEP: 100,     // 100コンボごとに回復ハートを足元近くへ出す
+    THEME_SEC: 180,            // 背景・地面テーマを3分ごとに切り替える
+    SEGMENT_SEC: 30,           // 上り/下りなどの体感区間目安(生成は30秒単位相当の長尺で作る)
+    TOTAL_MINUTES: 3,          // 1本の生成尺。3分ごとのテーマ変更地点で同モードのまま再生成する
+    DENSITY_MUL: 1.25,
+  },
+
   // ストーリーパネルの1文字送りの間隔(秒・Step9)
   STORY: { CHAR_INTERVAL_SEC: 0.04 },
 

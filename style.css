@@ -650,3 +650,6 @@ html, body {
   font-size: 13px;
   color: #c8d2ff;
 }
+
+.endless-btn { margin-top: 8px; width: 100%; border: 2px solid #ffd54a; border-radius: 14px; background: linear-gradient(135deg, rgba(255,213,74,0.95), rgba(255,126,74,0.9)); color: #241800; font-weight: 900; font-size: 18px; padding: 8px 10px; box-shadow: 0 0 16px rgba(255,213,74,0.35); }
+.endless-btn:active { transform: translateY(1px); }
