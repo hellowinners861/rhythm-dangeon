@@ -14,6 +14,8 @@ const Home = (() => {
   let equipPickerSlot = "head";
   let equipPickerIndex = 0;
   let readyMsgTimer = null;
+  let saveSlotMode = "new";
+  let pendingOverwriteSlot = 1;
 
   // 曲視聴用に独自デコードしたAudioBuffer(Conductor内部のバッファとは別に持つ)
   let jukeboxBuffers = {};
@@ -38,6 +40,14 @@ const Home = (() => {
     el.btnModeGame = $("btn-mode-game");
     el.btnModeOptions = $("btn-mode-options");
     el.btnModeJukebox = $("btn-mode-jukebox");
+    el.btnNewGame = $("btn-new-game");
+    el.btnContinueGame = $("btn-continue-game");
+    el.btnGameSelectBack = $("btn-game-select-back");
+    el.btnSaveSlotsBack = $("btn-save-slots-back");
+    el.saveSlotsTitle = $("save-slots-title");
+    el.saveSlotList = $("save-slot-list");
+    el.btnOverwriteYes = $("btn-overwrite-yes");
+    el.btnOverwriteNo = $("btn-overwrite-no");
 
     el.btnReadyBack = $("btn-ready-back");
     el.readyCoinCount = $("ready-coin-count");
@@ -110,7 +120,13 @@ const Home = (() => {
   }
 
   function wire() {
-    tap(el.btnModeGame, () => Game._gotoReady(), "confirm");
+    tap(el.btnModeGame, () => Game._gotoGameSelect(), "confirm");
+    tap(el.btnNewGame, () => showSaveSlots("new"), "confirm");
+    tap(el.btnContinueGame, () => showSaveSlots("continue"), "confirm");
+    tap(el.btnGameSelectBack, () => Game._gotoModeSelect(), "back");
+    tap(el.btnSaveSlotsBack, () => showGameSelect(), "back");
+    tap(el.btnOverwriteYes, () => startNewGameInSlot(pendingOverwriteSlot), "confirm");
+    tap(el.btnOverwriteNo, () => closeModal("screen-overwrite-confirm"), "back");
     tap(el.btnModeOptions, () => Game._gotoOptions(), "confirm");
     tap(el.btnModeJukebox, () => Game._gotoJukebox(), "confirm");
 
@@ -163,12 +179,13 @@ const Home = (() => {
   function applyScene(scene) {
     hideAll();
     if (scene === "modeselect") showModeSelect();
+    else if (scene === "gameselect") showGameSelect();
     else if (scene === "ready") showReady();
     else if (scene === "options") showOptions();
     else if (scene === "jukebox") showJukebox();
     // ホームBGM(仮組み):モード選択/出撃準備/オプションでのみ再生。
     // それ以外(ステージ・較正・曲視聴・リザルト等)へ抜けたら止める。
-    if (scene === "modeselect" || scene === "ready" || scene === "options") startHomeBgm();
+    if (scene === "modeselect" || scene === "gameselect" || scene === "ready" || scene === "options") startHomeBgm();
     else stopHomeBgm();
   }
 
@@ -177,6 +194,62 @@ const Home = (() => {
   function closeModal(id) { const e = $(id); if (e) e.classList.add("hidden"); }
 
   function showModeSelect() { show("screen-modeselect"); }
+
+  function showGameSelect() { show("screen-game-select"); }
+
+  function showSaveSlots(mode) {
+    saveSlotMode = mode;
+    hideAll();
+    show("screen-save-slots");
+    renderSaveSlots();
+  }
+
+  function progressLabel(save) {
+    if (!save) return "空のセーブデータ";
+    const pr = save.progress || {};
+    const ch = Math.max(1, Math.min(3, pr.unlockedChapter || 1));
+    const st = Math.max(1, Math.min(5, pr.unlockedStage || 1));
+    const theme = CONFIG.CHAPTERS[ch - 1] ? CONFIG.CHAPTERS[ch - 1].name : ("第" + ch + "章");
+    return "💰" + (save.coins || 0) + "　進捗: 第" + ch + "章「" + theme + "」 ステージ" + st;
+  }
+
+  function renderSaveSlots() {
+    if (!el.saveSlotList) return;
+    el.saveSlotsTitle.textContent = saveSlotMode === "new" ? "はじめから" : "つづきから";
+    el.saveSlotList.innerHTML = "";
+    for (let i = 1; i <= SAVE.slotCount; i++) {
+      const save = SAVE.slotData(i);
+      const div = document.createElement("div");
+      div.className = "save-slot" + (save ? " occupied" : " empty") + (SAVE.activeSlot === i ? " active" : "");
+      div.innerHTML = "<div class='save-slot-title'>セーブデータ" + i + "</div>" +
+        "<div class='save-slot-meta'>" + progressLabel(save) + "</div>";
+      tap(div, () => onTapSaveSlot(i, !!save), () => (saveSlotMode === "continue" && !save) ? "error" : "select");
+      el.saveSlotList.appendChild(div);
+    }
+  }
+
+  function onTapSaveSlot(slotNo, occupied) {
+    if (saveSlotMode === "continue") {
+      if (!occupied) return;
+      SAVE.selectSlot(slotNo);
+      if (typeof Game !== "undefined" && Game._syncFromSave) Game._syncFromSave();
+      Game._gotoReady();
+      return;
+    }
+    if (occupied) {
+      pendingOverwriteSlot = slotNo;
+      showModal("screen-overwrite-confirm");
+      return;
+    }
+    startNewGameInSlot(slotNo);
+  }
+
+  function startNewGameInSlot(slotNo) {
+    closeModal("screen-overwrite-confirm");
+    SAVE.newGameInSlot(slotNo);
+    if (typeof Game !== "undefined" && Game._syncFromSave) Game._syncFromSave();
+    Game._gotoReady();
+  }
 
   function showReady() {
     show("screen-ready");

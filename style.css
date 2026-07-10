@@ -603,3 +603,35 @@ html, body {
   0%, 100% { opacity: 0.3; }
   50% { opacity: 0.9; }
 }
+
+/* ---- セーブデータスロット選択 ---- */
+.save-slot-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(82%, 440px);
+}
+.save-slot {
+  min-height: 66px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 2px solid rgba(255, 255, 255, 0.16);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  cursor: pointer;
+}
+.save-slot.active { border-color: #7dd3ff; }
+.save-slot.empty { color: #b8c2e8; }
+.save-slot.occupied { border-color: rgba(255, 213, 74, 0.42); }
+.save-slot-title {
+  font-size: 16px;
+  font-weight: bold;
+  color: #e8ecff;
+}
+.save-slot-meta {
+  font-size: 13px;
+  color: #c8d2ff;
+}
