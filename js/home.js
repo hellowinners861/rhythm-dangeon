@@ -11,6 +11,8 @@ const Home = (() => {
   let el = {};
   let shopSlot = "head";          // ショップの現在タブ
   let pendingCharUnlock = null;   // 解放確認中のキャラid
+  let equipPickerSlot = "head";
+  let equipPickerIndex = 0;
   let readyMsgTimer = null;
 
   // 曲視聴用に独自デコードしたAudioBuffer(Conductor内部のバッファとは別に持つ)
@@ -449,42 +451,88 @@ const Home = (() => {
     readyMsgTimer = setTimeout(() => el.readyMessage.classList.add("hidden"), 2200);
   }
 
+  function ensureEquipArrays() {
+    if (!SAVE.data.equipment) SAVE.data.equipment = {};
+    if (!SAVE.data.equipSlots) SAVE.data.equipSlots = {};
+    const initial = (CONFIG.EQUIP_SLOTS && CONFIG.EQUIP_SLOTS.INITIAL) || 1;
+    const max = (CONFIG.EQUIP_SLOTS && CONFIG.EQUIP_SLOTS.MAX) || 3;
+    for (const slot of SLOTS) {
+      const raw = SAVE.data.equipment[slot];
+      const arr = Array.isArray(raw) ? raw.slice() : (raw ? [raw] : []);
+      const limit = Math.max(initial, Math.min(max, Math.floor(SAVE.data.equipSlots[slot] || initial)));
+      SAVE.data.equipSlots[slot] = limit;
+      SAVE.data.equipment[slot] = arr.filter((id, i, a) => typeof id === "string" && a.indexOf(id) === i).slice(0, limit);
+    }
+  }
+
   function renderEquipSlots() {
     if (!el.equipSlots) return;
+    ensureEquipArrays();
     el.equipSlots.innerHTML = "";
     for (const slot of SLOTS) {
-      const id = SAVE.data.equipment[slot];
-      const item = id ? Equip.findItem(id) : null;
+      const limit = Equip.slotLimit(slot);
+      const ids = Equip.equippedIds(slot, SAVE.data.equipment);
       const div = document.createElement("div");
       div.className = "equip-slot";
-      div.innerHTML = item
-        ? `<div class="equip-icon">${item.icon}</div><div class="equip-label">${SLOT_LABEL[slot]}: ${item.name}</div>`
-        : `<div class="equip-icon">➖</div><div class="equip-label">${SLOT_LABEL[slot]}: なし</div>`;
-      tap(div, () => openEquipPicker(slot));
+      const chips = [];
+      for (let i = 0; i < limit; i++) {
+        const item = ids[i] ? Equip.findItem(ids[i]) : null;
+        chips.push(`<button class="equip-mini" data-idx="${i}">${item ? item.icon : "➕"}<span>${i + 1}</span></button>`);
+      }
+      const locked = [];
+      const max = (CONFIG.EQUIP_SLOTS && CONFIG.EQUIP_SLOTS.MAX) || 3;
+      for (let i = limit; i < max; i++) locked.push(`<button class="equip-mini locked" data-idx="${i}">🔒<span>${i + 1}</span></button>`);
+      div.innerHTML =
+        `<div class="equip-label">${SLOT_LABEL[slot]} <small>${ids.length}/${limit}</small></div>` +
+        `<div class="equip-mini-row">${chips.join("")}${locked.join("")}</div>`;
+      div.querySelectorAll(".equip-mini").forEach((btn) => {
+        const idx = parseInt(btn.getAttribute("data-idx"), 10) || 0;
+        if (idx < limit) tap(btn, () => openEquipPicker(slot, idx));
+        else tap(btn, () => { shopSlot = slot; openShop(); flashReadyMessage(`${SLOT_LABEL[slot]}の装備枠はショップで解放できます`); }, "error");
+      });
       el.equipSlots.appendChild(div);
     }
   }
 
-  function openEquipPicker(slot) {
-    if (el.equipPickerTitle) el.equipPickerTitle.textContent = `${SLOT_LABEL[slot]}装備`;
-    renderEquipPicker(slot);
+  function openEquipPicker(slot, index) {
+    ensureEquipArrays();
+    equipPickerSlot = slot;
+    equipPickerIndex = index || 0;
+    if (el.equipPickerTitle) el.equipPickerTitle.textContent = `${SLOT_LABEL[slot]}装備 ${equipPickerIndex + 1}枠目`;
+    renderEquipPicker(slot, equipPickerIndex);
     showModal("screen-equip-picker");
   }
 
-  function renderEquipPicker(slot) {
-    if (!el.equipPickerList) return;
-    el.equipPickerList.innerHTML = "";
+  function setEquipmentAt(slot, index, id) {
+    ensureEquipArrays();
+    const limit = Equip.slotLimit(slot);
+    const arr = SAVE.data.equipment[slot].slice(0, limit);
+    if (id) {
+      for (let i = 0; i < arr.length; i++) if (arr[i] === id) arr[i] = null; // 同一装備の重複装着は禁止
+      arr[index] = id;
+    } else {
+      arr[index] = null;
+    }
+    SAVE.data.equipment[slot] = arr.filter(Boolean).slice(0, limit);
+    SAVE.save();
+    Equip.refresh();
+  }
 
-    // 「なし」(外す)
+  function renderEquipPicker(slot, index) {
+    if (!el.equipPickerList) return;
+    ensureEquipArrays();
+    el.equipPickerList.innerHTML = "";
+    const ids = Equip.equippedIds(slot, SAVE.data.equipment);
+    const currentId = ids[index] || null;
+
+    // 「なし」(この枠だけ外す)
     const noneRow = document.createElement("div");
-    noneRow.className = "item-row" + (!SAVE.data.equipment[slot] ? " equipped" : "");
+    noneRow.className = "item-row" + (!currentId ? " equipped" : "");
     noneRow.innerHTML =
       `<div class="item-icon">➖</div>` +
-      `<div class="item-info"><div class="item-name">なし${!SAVE.data.equipment[slot] ? "(装備中)" : ""}</div></div>`;
+      `<div class="item-info"><div class="item-name">この枠は空き${!currentId ? "(選択中)" : ""}</div></div>`;
     tap(noneRow, () => {
-      SAVE.data.equipment[slot] = null;
-      SAVE.save();
-      Equip.refresh();
+      setEquipmentAt(slot, index, null);
       closeModal("screen-equip-picker");
       renderReady();
     }, "confirm");
@@ -493,17 +541,17 @@ const Home = (() => {
     // 所持している当該部位の装備
     const owned = (CONFIG.EQUIPMENT[slot] || []).filter((it) => SAVE.data.ownedEquip.includes(it.id));
     for (const item of owned) {
-      const equipped = SAVE.data.equipment[slot] === item.id;
+      const equippedIndex = ids.indexOf(item.id);
+      const equipped = equippedIndex >= 0;
       const row = document.createElement("div");
-      row.className = "item-row" + (equipped ? " equipped" : "");
+      row.className = "item-row" + (currentId === item.id ? " equipped" : "");
+      const tag = currentId === item.id ? "(この枠に装備中)" : (equipped ? `(${equippedIndex + 1}枠目から移動)` : "");
       row.innerHTML =
         `<div class="item-icon">${item.icon}</div>` +
-        `<div class="item-info"><div class="item-name">${item.name}${equipped ? "(装備中)" : ""}</div>` +
+        `<div class="item-info"><div class="item-name">${item.name}${tag}</div>` +
         `<div class="item-desc">${item.desc}</div></div>`;
       tap(row, () => {
-        SAVE.data.equipment[slot] = item.id;
-        SAVE.save();
-        Equip.refresh();
+        setEquipmentAt(slot, index, item.id);
         closeModal("screen-equip-picker");
         renderReady();
       }, "confirm");
@@ -513,7 +561,7 @@ const Home = (() => {
     // 未所持はショップへ誘導
     const hint = document.createElement("div");
     hint.className = "item-hint";
-    hint.textContent = "未所持の装備はショップで購入できます";
+    hint.textContent = "未所持の装備と追加枠はショップで購入できます";
     el.equipPickerList.appendChild(hint);
     const toShop = document.createElement("button");
     toShop.className = "home-btn small";
@@ -540,6 +588,7 @@ const Home = (() => {
     });
     if (!el.shopList) return;
     el.shopList.innerHTML = "";
+    renderSlotUnlockRow();
     const items = CONFIG.EQUIPMENT[shopSlot] || [];
     for (const item of items) {
       const owned = SAVE.data.ownedEquip.includes(item.id);
@@ -558,6 +607,46 @@ const Home = (() => {
       }
       el.shopList.appendChild(row);
     }
+  }
+
+  function renderSlotUnlockRow() {
+    ensureEquipArrays();
+    const limit = Equip.slotLimit(shopSlot);
+    const max = (CONFIG.EQUIP_SLOTS && CONFIG.EQUIP_SLOTS.MAX) || 3;
+    const row = document.createElement("div");
+    row.className = "item-row slot-unlock-row";
+    if (limit >= max) {
+      row.innerHTML =
+        `<div class="item-icon">✅</div>` +
+        `<div class="item-info"><div class="item-name">${SLOT_LABEL[shopSlot]}の装備枠</div>` +
+        `<div class="item-desc">最大${max}枠まで解放済み</div></div>` +
+        `<div class="item-owned">解放済</div>`;
+    } else {
+      const next = limit + 1;
+      const prices = (CONFIG.EQUIP_SLOTS && CONFIG.EQUIP_SLOTS.UNLOCK_PRICES) || [0, 800, 1800];
+      const price = prices[next - 1] || 0;
+      row.innerHTML =
+        `<div class="item-icon">🔓</div>` +
+        `<div class="item-info"><div class="item-name">${SLOT_LABEL[shopSlot]}の${next}枠目を解放</div>` +
+        `<div class="item-desc">この部位に同時装備できる数が${next}個になります</div></div>` +
+        `<button class="buy-btn"${SAVE.data.coins < price ? " disabled" : ""}>💰${price}</button>`;
+      const buyBtn = row.querySelector(".buy-btn");
+      tap(buyBtn, () => { if (!buyBtn.disabled) unlockEquipSlot(shopSlot, price); }, () => buyBtn.disabled ? "error" : "buy");
+    }
+    el.shopList.appendChild(row);
+  }
+
+  function unlockEquipSlot(slot, price) {
+    ensureEquipArrays();
+    const max = (CONFIG.EQUIP_SLOTS && CONFIG.EQUIP_SLOTS.MAX) || 3;
+    const cur = Equip.slotLimit(slot);
+    if (cur >= max || SAVE.data.coins < price) return;
+    SAVE.data.coins -= price;
+    SAVE.data.equipSlots[slot] = cur + 1;
+    SAVE.save();
+    Equip.refresh();
+    renderShop();
+    renderReady();
   }
 
   function buyItem(item) {

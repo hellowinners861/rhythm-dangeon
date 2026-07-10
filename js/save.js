@@ -4,7 +4,7 @@
 
 const SAVE = (() => {
   const KEY = "rhythm-dungeon-save";
-  const VERSION = 3;
+  const VERSION = 4;
 
   // 章進行の初期値(DESIGN §10・Step8)。
   //   unlockedChapter … 解放済みの最新章(1..3)。これ未満の章は全ステージ解放済み。
@@ -29,7 +29,8 @@ const SAVE = (() => {
       coins: 0,                   // 所持コイン(メタ通貨)
       unlockedChars: ["rat"],     // 解放済みキャラid
       ownedEquip: [],             // 所持装備id配列
-      equipment: { head: null, body: null, feet: null, weapon: null }, // 現在の装備
+      equipment: { head: [], body: [], feet: [], weapon: [] }, // 現在の装備(各部位 最大3枠)
+      equipSlots: { head: 1, body: 1, feet: 1, weapon: 1 }, // 解放済み装備枠数(部位ごと)
       volumes: { bgm: 0.8, se: 0.8 }, // 音量(0..1)
       records: {},                // 曲別ハイスコア等(将来用)
       progress: defaultProgress(),// 章・ステージ進行(Step8)
@@ -51,27 +52,63 @@ const SAVE = (() => {
     return d;
   }
 
-  // 旧バージョンからの移行。v1(calibrationMsのみ)/v2(コイン・装備等)から引き継ぐ。
+  function normalizeEquipment(src, slots) {
+    const d = { head: [], body: [], feet: [], weapon: [] };
+    const max = (typeof CONFIG !== "undefined" && CONFIG.EQUIP_SLOTS) ? CONFIG.EQUIP_SLOTS.MAX : 3;
+    for (const slot of Object.keys(d)) {
+      const raw = src && src[slot];
+      const arr = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+      const seen = new Set();
+      const limit = Math.max(1, Math.min(max, slots && slots[slot] ? slots[slot] : max));
+      for (const id of arr) {
+        if (typeof id !== "string" || seen.has(id)) continue;
+        seen.add(id);
+        d[slot].push(id);
+        if (d[slot].length >= limit) break;
+      }
+    }
+    return d;
+  }
+
+  function normalizeEquipSlots(src) {
+    const max = (typeof CONFIG !== "undefined" && CONFIG.EQUIP_SLOTS) ? CONFIG.EQUIP_SLOTS.MAX : 3;
+    const initial = (typeof CONFIG !== "undefined" && CONFIG.EQUIP_SLOTS) ? CONFIG.EQUIP_SLOTS.INITIAL : 1;
+    const d = { head: initial, body: initial, feet: initial, weapon: initial };
+    if (src && typeof src === "object") {
+      for (const slot of Object.keys(d)) {
+        if (typeof src[slot] === "number") d[slot] = Math.max(initial, Math.min(max, Math.floor(src[slot])));
+      }
+    }
+    return d;
+  }
+
+  // 旧バージョンからの移行。v1(calibrationMsのみ)/v2(コイン・装備等)/v3(章進行)から引き継ぐ。
   function migrate(obj) {
     if (!obj || typeof obj !== "object") return defaults();
     if (obj.version !== VERSION) {
       // バージョン差異時はデフォルトに既知フィールドをマージして作り直す
       const d = defaults();
       if (typeof obj.calibrationMs === "number") d.calibrationMs = obj.calibrationMs;
-      // v2→v3: コイン・装備・キャラ解放は引き継ぐ(章進行は初期化)
-      if (obj.version === 2) {
+      // v2/v3→v4: コイン・装備・キャラ解放を引き継ぎ、単一装備を配列装備へ変換する
+      if (obj.version === 2 || obj.version === 3) {
         if (typeof obj.coins === "number") d.coins = obj.coins;
         if (Array.isArray(obj.unlockedChars)) d.unlockedChars = obj.unlockedChars.slice();
         if (Array.isArray(obj.ownedEquip)) d.ownedEquip = obj.ownedEquip.slice();
-        d.equipment = Object.assign(defaults().equipment, obj.equipment || {});
+        d.equipSlots = normalizeEquipSlots(obj.equipSlots);
+        d.equipment = normalizeEquipment(obj.equipment || {}, d.equipSlots);
         d.volumes = Object.assign(defaults().volumes, obj.volumes || {});
         d.records = obj.records || {};
+        if (obj.version === 3) {
+          d.progress = fixProgress(obj.progress);
+          if (typeof obj.selectedSong === "string") d.selectedSong = obj.selectedSong;
+        }
       }
       return d;
     }
     // 欠損フィールドをデフォルトで補完(浅いマージ + ネストも補完)
     const d = Object.assign(defaults(), obj);
-    d.equipment = Object.assign(defaults().equipment, obj.equipment || {});
+    d.equipSlots = normalizeEquipSlots(obj.equipSlots);
+    d.equipment = normalizeEquipment(obj.equipment || {}, d.equipSlots);
     d.volumes = Object.assign(defaults().volumes, obj.volumes || {});
     d.records = obj.records || {};
     d.progress = fixProgress(obj.progress);

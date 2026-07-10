@@ -456,8 +456,48 @@ const LevelGen = (() => {
     "################",
   ];
 
-  // enter+exit の2文字キー → テンプレート(L→R は生成側で MIDDLE を使う)。
-  const VTEMPLATES = { LU: V_LU, LD: V_LD, UR: V_UR, UU: V_UU, DR: V_DR, DD: V_DD };
+  // 縦移動チャンクは、上り/下りそれぞれ5種類以上の地形差が出るように安全な範囲だけ
+  // E/C/I や小足場を差し替えたバリエーションを持たせる(縦連絡路の固定列は変えない)。
+  function variant(rows, edits) {
+    const a = rows.slice();
+    for (const e of edits) a[e[0]] = e[1];
+    return a;
+  }
+  const UP_VARIANTS = [
+    V_LU,
+    variant(V_LU, [[0, "...CC..........."], [3, "......I........."], [7, ".............E.."]]),
+    variant(V_LU, [[2, "........C......."], [5, "..C............."], [7, "..........I..E.."]]),
+    variant(V_LU, [[0, "....I..........."], [3, "......C....C...."], [7, "........E.....C."]]),
+    variant(V_LU, [[2, "..C............."], [5, ".......C........"], [7, "..........E..C.."]]),
+  ];
+  const UP_THROUGH_VARIANTS = [
+    V_UU,
+    variant(V_UU, [[0, "...CC..........."], [3, "......I........."], [7, ".............E.."]]),
+    variant(V_UU, [[2, "........C......."], [5, "..C............."], [7, "..........I..E.."]]),
+    variant(V_UU, [[0, "....I..........."], [3, "......C....C...."], [7, "........E.....C."]]),
+    variant(V_UU, [[2, "..C............."], [5, ".......C........"], [7, "..........E..C.."]]),
+  ];
+  const DOWN_VARIANTS = [
+    V_LD,
+    variant(V_LD, [[4, "...........I...."], [7, "..C..E....C....."]]),
+    variant(V_LD, [[3, ".............C.."], [7, ".....I....C..E.."]]),
+    variant(V_LD, [[4, "...........C...."], [6, "..C............."], [7, ".....E.......I.."]]),
+    variant(V_LD, [[2, "............C..."], [7, "..I..E....C....."]]),
+  ];
+  const DOWN_THROUGH_VARIANTS = [
+    V_DD,
+    variant(V_DD, [[2, "............I..."], [5, "...........C.C.."]]),
+    variant(V_DD, [[1, "............C..."], [7, "..C............."]]),
+    variant(V_DD, [[3, "...........I...."], [5, "...........C...."]]),
+    variant(V_DD, [[2, "............C..."], [6, ".............C.."]]),
+  ];
+
+  // enter+exit の2文字キー → テンプレート候補(L→R/R→L は生成側で MIDDLE を使う)。
+  const VTEMPLATES = {
+    LU: UP_VARIANTS, UU: UP_THROUGH_VARIANTS, RU: UP_VARIANTS, DU: UP_THROUGH_VARIANTS,
+    LD: DOWN_VARIANTS, DD: DOWN_THROUGH_VARIANTS, RD: DOWN_VARIANTS, UD: DOWN_THROUGH_VARIANTS,
+    UR: V_UR, DR: V_DR, UL: V_UR, DL: V_DR,
+  };
 
   // 文字列配列 → レベル構造体。
   // 返り値: { w, h, tiles(tiles[y][x]=char), startX, startY, goalX, goalY }
@@ -525,7 +565,7 @@ const LevelGen = (() => {
     return weights.length;
   }
 
-  // 2Dグリッド生成。スタート→ゴールの一本道パスをランダムウォーク(右/上/下のみ)で作り、
+  // 2Dグリッド生成。スタート→ゴールの一本道パスをランダムウォーク(右/左/上/下)で作り、
   // パス上のセルに enter/exit 方向に応じたテンプレートを、パス外セルに V_SOLID を置く。
   //   sd: この生成に使うseed(rerollで変換される)/ R: グリッド行数 / N: パスセル総数(=従来チャンク数)
   //   densityMul: E/C/I 採用率係数 / goalDist: レベルに記録する参考値
@@ -536,7 +576,7 @@ const LevelGen = (() => {
     const vertRate = (typeof V.VERT_RATE === "number") ? V.VERT_RATE : 0.35;
     const walk = rng((sd ^ 0xa53c9b6d) >>> 0); // パス・テンプレート選択用の乱数
 
-    // --- ランダムウォークでパスを作る(右R/上U/下D。左は無し=逆行禁止) ---
+    // --- ランダムウォークでパスを作る(右R/左L/上U/下D。即反転・再訪は禁止) ---
     let gr = Math.min(R - 1, Math.floor(walk() * R)); // スタート行(列0)
     let gc = 0;
     const cells = [{ gr, gc, inMove: null, outMove: null }];
@@ -545,22 +585,31 @@ const LevelGen = (() => {
     const moves = N - 1;
     for (let i = 0; i < moves; i++) {
       let mv;
-      // 最初と最後の移動は必ず右(START/GOALテンプレートを無改修で使うため)
-      if (i === 0 || i === moves - 1) {
+      // 最初だけは必ず右(STARTから出る向きを固定)。最後は左ゴールも許可する。
+      if (i === 0) {
         mv = "R";
       } else {
-        // 縦移動候補(逆行禁止・行範囲内・未訪問)
-        const cand = [];
-        if (lastMove !== "D" && gr - 1 >= 0 && !visited.has((gr - 1) + "," + gc)) cand.push("U");
-        if (lastMove !== "U" && gr + 1 <= R - 1 && !visited.has((gr + 1) + "," + gc)) cand.push("D");
-        if (cand.length > 0 && walk() < vertRate) {
-          mv = cand[Math.min(cand.length - 1, Math.floor(walk() * cand.length))];
+        const candV = [];
+        if (lastMove !== "D" && gr - 1 >= 0 && !visited.has((gr - 1) + "," + gc)) candV.push("U");
+        if (lastMove !== "U" && gr + 1 <= R - 1 && !visited.has((gr + 1) + "," + gc)) candV.push("D");
+        const candH = [];
+        if (lastMove !== "L" && !visited.has(gr + "," + (gc + 1))) candH.push("R");
+        if (lastMove !== "R" && gc - 1 >= 0 && !visited.has(gr + "," + (gc - 1))) candH.push("L");
+        if (candV.length > 0 && walk() < vertRate) {
+          mv = candV[Math.min(candV.length - 1, Math.floor(walk() * candV.length))];
+        } else if (candH.length > 0) {
+          // 基本は右へ伸ばすが、ときどき左にも進み、ゴールが右端とは限らない形を作る。
+          const leftBias = (typeof V.LEFT_RATE === "number") ? V.LEFT_RATE : 0.22;
+          mv = (candH.includes("L") && walk() < leftBias) ? "L" : candH[0];
+        } else if (candV.length > 0) {
+          mv = candV[Math.min(candV.length - 1, Math.floor(walk() * candV.length))];
         } else {
-          mv = "R";
+          return null;
         }
       }
       if (mv === "U") gr -= 1;
       else if (mv === "D") gr += 1;
+      else if (mv === "L") gc -= 1;
       else gc += 1;
       const key = gr + "," + gc;
       if (visited.has(key)) return null; // 万一の再訪(通常起きない)→ reroll
@@ -571,23 +620,25 @@ const LevelGen = (() => {
     }
 
     // --- グリッド範囲(未使用の行は詰める) ---
-    let minR = Infinity, maxR = -Infinity, maxC = 0;
+    let minR = Infinity, maxR = -Infinity, minC = Infinity, maxC = -Infinity;
     for (const c of cells) {
       if (c.gr < minR) minR = c.gr;
       if (c.gr > maxR) maxR = c.gr;
+      if (c.gc < minC) minC = c.gc;
       if (c.gc > maxC) maxC = c.gc;
     }
     const usedR = maxR - minR + 1;
-    const C = maxC + 1;
+    const C = maxC - minC + 1;
 
     // --- テンプレート格子(デフォルト=全埋め)にパスセルのテンプレを配置 ---
     const gridT = [];
     for (let r = 0; r < usedR; r++) gridT.push(new Array(C).fill(V_SOLID));
-    let vertMoves = 0;
+    let vertMoves = 0, leftMoves = 0;
     for (let idx = 0; idx < cells.length; idx++) {
       const c = cells[idx];
       if (c.inMove === "U" || c.inMove === "D") vertMoves++;
-      gridT[c.gr - minR][c.gc] = pickCellTemplate(idx, cells, walk);
+      if (c.inMove === "L") leftMoves++;
+      gridT[c.gr - minR][c.gc - minC] = pickCellTemplate(idx, cells, walk);
     }
 
     // --- 文字列組み立て(グリッド行×ローカル行を上から、列を左から連結) ---
@@ -624,6 +675,7 @@ const LevelGen = (() => {
     level.vertical = true;                       // 縦生成で作られたレベル(検証・デバッグ用)
     level.grid = { rows: usedR, cols: C };       // 実際に使ったグリッド寸法
     level.vertMoves = vertMoves;                 // 縦移動の回数(統計用)
+    level.leftMoves = leftMoves;                 // 左移動の回数(統計用)
     return level;
   }
 
@@ -633,10 +685,12 @@ const LevelGen = (() => {
     if (idx === 0) return START;
     if (idx === cells.length - 1) return GOAL;
     const c = cells[idx];
-    const e = (c.inMove === "R") ? "L" : c.inMove; // enter文字(R入口=L)
+    const e = (c.inMove === "R") ? "L" : (c.inMove === "L") ? "R" : c.inMove;
     const key = e + c.outMove;
-    if (key === "LR") return MIDDLE[pickMiddle(rand, -1)]; // 純横断は既存18種
-    return VTEMPLATES[key] || V_SOLID;                     // 想定外(起きない)は塞ぐ
+    if (key === "LR" || key === "RL") return MIDDLE[pickMiddle(rand, -1)]; // 純横断は既存18種
+    const t = VTEMPLATES[key];
+    if (Array.isArray(t && t[0])) return t[Math.min(t.length - 1, Math.floor(rand() * t.length))];
+    return t || V_SOLID;                     // 想定外(起きない)は塞ぐ
   }
 
   // 生成レベルの到達性(スタート→ゴール)を、実際の移動モデルの「保守的サブセット」でBFS検証する。

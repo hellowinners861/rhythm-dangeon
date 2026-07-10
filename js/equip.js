@@ -40,6 +40,27 @@ const Equip = (() => {
     return null;
   }
 
+  function equippedIds(slot, equipment) {
+    const raw = equipment && equipment[slot];
+    const arr = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+    const limit = slotLimit(slot);
+    const seen = new Set();
+    const out = [];
+    for (const id of arr) {
+      if (typeof id !== "string" || seen.has(id)) continue;
+      seen.add(id);
+      out.push(id);
+      if (out.length >= limit) break;
+    }
+    return out;
+  }
+
+  function slotLimit(slot) {
+    const cfg = CONFIG.EQUIP_SLOTS || { INITIAL: 1, MAX: 3 };
+    const raw = SAVE.data && SAVE.data.equipSlots && SAVE.data.equipSlots[slot];
+    return Math.max(cfg.INITIAL || 1, Math.min(cfg.MAX || 3, Math.floor(raw || cfg.INITIAL || 1)));
+  }
+
   function compute() {
     const stats = {};
     for (const k of MUL_KEYS) stats[k] = 1;
@@ -52,18 +73,19 @@ const Equip = (() => {
 
     const equipment = (SAVE.data && SAVE.data.equipment) || {};
     for (const slot of SLOTS) {
-      const id = equipment[slot];
-      if (!id) continue;
-      const item = findItem(id);
-      if (!item || !item.fx) continue;
-      const fx = item.fx;
-      for (const k of MUL_KEYS) if (typeof fx[k] === "number") stats[k] *= fx[k];
-      for (const k of ADD_KEYS) if (typeof fx[k] === "number") stats[k] += fx[k];
-      if (typeof fx.moveDist === "number") stats.moveDist = Math.max(stats.moveDist, fx.moveDist);
-      for (const k of BOOL_KEYS) if (fx[k]) stats[k] = true;
-      if (typeof fx.vampire === "number") stats.vampire += fx.vampire;
-      if (typeof fx.comboAtkStep === "number") stats.comboAtkStep = fx.comboAtkStep;
-      if (typeof fx.comboAtkMax === "number") stats.comboAtkMax = fx.comboAtkMax;
+      const ids = equippedIds(slot, equipment);
+      for (const id of ids) {
+        const item = findItem(id);
+        if (!item || !item.fx) continue;
+        const fx = item.fx;
+        for (const k of MUL_KEYS) if (typeof fx[k] === "number") stats[k] *= fx[k];
+        for (const k of ADD_KEYS) if (typeof fx[k] === "number") stats[k] += fx[k];
+        if (typeof fx.moveDist === "number") stats.moveDist = Math.max(stats.moveDist, fx.moveDist);
+        for (const k of BOOL_KEYS) if (fx[k]) stats[k] = true;
+        if (typeof fx.vampire === "number") stats.vampire += fx.vampire;
+        if (typeof fx.comboAtkStep === "number") stats.comboAtkStep = Math.max(stats.comboAtkStep, fx.comboAtkStep);
+        if (typeof fx.comboAtkMax === "number") stats.comboAtkMax = Math.max(stats.comboAtkMax, fx.comboAtkMax);
+      }
     }
     return stats;
   }
@@ -80,5 +102,5 @@ const Equip = (() => {
     return cached;
   }
 
-  return { stats, refresh, findItem, slotOf };
+  return { stats, refresh, findItem, slotOf, equippedIds, slotLimit };
 })();

@@ -274,9 +274,8 @@ const Boss = (() => {
     spawnBullet(boss.tx + boss.w, y, 1, 0, 1, true);
   }
   function jumpPress() {
-    // プレイヤーの位置へ落下(中央がプレイヤー列に来るよう着地)
-    const pc = playerTile().tx;
-    moveAnchor(pc - 1, boss.ty, true);        // 3×3の中央=プレイヤー列
+    // 2章ボスは瞬間移動しない。予兆中に歩いていた現在位置へ、そのまま落下する。
+    // 描画上のジャンプリフトだけを戻し、tx/x は変更しない。
     boss.liftTarget = 0; boss.lift = 0;       // 一気に落下
     // 着地点3×1(ボスの3列 × standRow)へダメージ+画面揺れ
     const y = arena.standRow;
