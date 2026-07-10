@@ -752,7 +752,7 @@ const LevelGen = (() => {
   //         ゴールの代わりに末尾へボスアリーナ(ARENA)を接続する。level.isBoss / level.arena を持つ。
   //   densityMul: E/C/I マーカーの採用率係数(章の密度)。SPAWN_RATE×densityMul(上限1)でシード抽選する。
   // 返り値: parse済みレベル + spawns[{type,tx,ty}] + chunkCount / seed / goalDist。
-  function generate({ totalBeats, seed, boss, densityMul } = {}) {
+  function generate({ totalBeats, seed, boss, densityMul, forceVerticalRows } = {}) {
     const S = CONFIG.STAGE;
     const tb = totalBeats || S.TEST_BEATS;
     const sd = (seed >>> 0);
@@ -765,7 +765,7 @@ const LevelGen = (() => {
     // (=フォールバック時の生成結果は従来とバイト単位で一致する)。
     const V = S.VERTICAL;
     if (!isBoss && V && V.ENABLED) {
-      const R = pickRows(sd, V.ROW_WEIGHTS || [1]);
+      const R = forceVerticalRows ? Math.max(1, forceVerticalRows | 0) : pickRows(sd, V.ROW_WEIGHTS || [1]);
       const gDist = tb * S.ADVANCE_RATE;
       const N = Math.max(2, Math.round(gDist / S.CHUNK_W));
       if (R >= 2 && N >= 4) {

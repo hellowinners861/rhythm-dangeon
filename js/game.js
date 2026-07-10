@@ -23,11 +23,20 @@ const Game = (() => {
   const urlSeedStr = (location.search.match(/[?&]seed=(\d+)/) || [])[1];
   const urlSeed = (urlSeedStr !== undefined) ? (parseInt(urlSeedStr, 10) >>> 0) : undefined;
   let currentChapter = urlChapter ? (parseInt(urlChapter, 10) - 1) : 0;
-  function chapterTheme() { return CONFIG.CHAPTERS[currentChapter] || CONFIG.CHAPTERS[0]; }
+  function chapterTheme() {
+    if (endlessMode && Conductor.running) {
+      const sec = Math.max(0, Conductor.currentBeat() * 60 / Math.max(1, Conductor.bpm));
+      const idx = Math.floor(sec / CONFIG.ENDLESS.THEME_SEC) % CONFIG.CHAPTERS.length;
+      return CONFIG.CHAPTERS[idx] || CONFIG.CHAPTERS[0];
+    }
+    return CONFIG.CHAPTERS[currentChapter] || CONFIG.CHAPTERS[0];
+  }
 
   // 出撃準備での章・ステージ選択(1始まり)。init で進行データから初期化する。DESIGN §10・Step8
   let selChapter = 1;
   let selStage = 1;
+  let endlessMode = false;       // 3章ボス撃破後に解放されるHP0まで続くモード
+  let nextEndlessHeartCombo = 100;
 
   let canvas, g;
   let scene = "title";
@@ -356,19 +365,22 @@ const Game = (() => {
   function startLevel(seed) {
     curSeed = (seed === undefined) ? (Date.now() >>> 0) : (seed >>> 0);
     // 章を選択から確定(?chapter= はデバッグ用に優先残置)。テーマ・densityMul の参照元。
-    currentChapter = urlChapter ? (parseInt(urlChapter, 10) - 1) : (selChapter - 1);
+    currentChapter = endlessMode ? 0 : (urlChapter ? (parseInt(urlChapter, 10) - 1) : (selChapter - 1));
     // 装備効果を最新化(出撃準備での変更を確実に反映)
     if (typeof Equip !== "undefined") Equip.refresh();
     const theme = chapterTheme();
     // このステージがボスステージ(章の5面)か
-    bossStage = (selStage === 5);
+    bossStage = !endlessMode && (selStage === 5);
     bossTriggered = false;
     bossDefeatedHandled = false;
     bossRestActive = false;
     if (typeof Boss !== "undefined") Boss.reset();
     // 曲の総拍数からゴール距離を逆算(未ロード時は較正用の仮値)。DESIGN §4/§10
-    const tb = Conductor.totalBeats || CONFIG.STAGE.TEST_BEATS;
-    level = LevelGen.generate({ totalBeats: tb, seed: curSeed, boss: bossStage, densityMul: theme.densityMul });
+    const tb = endlessMode
+      ? Math.max(CONFIG.STAGE.TEST_BEATS, Math.round((CONFIG.ENDLESS.TOTAL_MINUTES * 60) * (Conductor.bpm || 120) / 60))
+      : (Conductor.totalBeats || CONFIG.STAGE.TEST_BEATS);
+    const densityMul = endlessMode ? CONFIG.ENDLESS.DENSITY_MUL : theme.densityMul;
+    level = LevelGen.generate({ totalBeats: tb, seed: curSeed, boss: bossStage, densityMul, forceVerticalRows: endlessMode ? 3 : 0 });
     Player.init(level, effectiveChar());
     // 敵の実体化:抽選・位相は seed 由来の乱数(リトライ再現性)。variantRateは章テーマ由来(色違い抽選)
     Enemies.init(level, LevelGen.rng((curSeed ^ 0x9e3779b9) >>> 0), theme.variantRate);
@@ -397,11 +409,13 @@ const Game = (() => {
     feverFlash = 0;
     goalDelay = 0;
     confetti = [];
+    nextEndlessHeartCombo = CONFIG.ENDLESS.HEART_COMBO_STEP;
   }
 
   // 「いざ!」で出撃準備からステージへ。常に新しいレベル・曲を頭から開始する。
   // 章のステージ1を初めて選んだときは章開始ストーリーを挟んでから開始する(章ごと初回)。
   function gotoStage() {
+    endlessMode = false;
     const ci = selChapter - 1;
     const intro = STORY.chapterIntro[ci];
     if (selStage === 1 && intro && !SAVE.data.progress.seenChapterIntro[ci]) {
@@ -410,6 +424,11 @@ const Game = (() => {
       showStory(intro, beginStage);
       return;
     }
+    beginStage();
+  }
+
+  function gotoEndless() {
+    endlessMode = true;
     beginStage();
   }
 
@@ -429,6 +448,7 @@ const Game = (() => {
     const pr = SAVE.data.progress;
     if (isBoss) {
       if (chapter >= 1 && chapter <= 3) pr.clearedBoss[chapter - 1] = true;
+      if (chapter === CONFIG.ENDLESS.UNLOCK_CHAPTER) pr.endlessUnlocked = true;
       if (chapter === pr.unlockedChapter && chapter < 3) {
         pr.unlockedChapter = chapter + 1;
         pr.unlockedStage = 1;
@@ -502,6 +522,12 @@ const Game = (() => {
       SAVE.data.progress.seenOpening = true;
       SAVE.save();
       showStory(STORY.opening, null);
+    } else if (SAVE.data.progress.endlessUnlocked && !SAVE.data.progress.seenEndlessUnlock) {
+      SAVE.data.progress.seenEndlessUnlock = true;
+      SAVE.save();
+      if (typeof Home !== "undefined" && Home.showReadyMessage) {
+        Home.showReadyMessage("パンパカパーン！エンドレスモードが解放されました！");
+      }
     }
   }
 
@@ -877,6 +903,11 @@ const Game = (() => {
     } else {
       combo++;
       if (combo > maxCombo) maxCombo = combo;
+      if (endlessMode && combo >= nextEndlessHeartCombo) {
+        const p = Player.pos();
+        if (typeof Items !== "undefined" && Items.spawnPickup) Items.spawnPickup("heart", p.tx + p.dir, p.ty);
+        nextEndlessHeartCombo += CONFIG.ENDLESS.HEART_COMBO_STEP;
+      }
       if (res.verdict === "PERFECT") judgeStats.perfect++;
       else judgeStats.good++;
       const fever = combo >= feverThreshold();
@@ -1035,6 +1066,12 @@ const Game = (() => {
         bossClear = true;
         gotoResult();
       }
+      return;
+    }
+
+    if (endlessMode) {
+      // エンドレスはゴールで終わらない。端まで進んだら同モードのまま次の長尺ダンジョンへつなぐ。
+      if (Math.abs(p.tx - level.goalX) <= 2) startLevel(((curSeed ^ 0x6d2b79f5) + 1) >>> 0);
       return;
     }
 
@@ -1420,14 +1457,14 @@ const Game = (() => {
     g.textAlign = "center";
     g.fillStyle = "#ff5a6a";
     g.font = "bold 100px sans-serif";
-    g.fillText("ゲームオーバー", VW / 2, 220);
+    g.fillText(endlessMode ? "エンドレス終了" : "ゲームオーバー", VW / 2, 220);
 
     const rows = [
       ["倒した敵", enemiesKilled, "#ffd54a"],
       ["最大コンボ", maxCombo, "#e8ecff"],
       ["総タップ", taps, "#e8ecff"],
       ["スコア", score, "#e8ecff"],
-      ["獲得コイン", resultCoins, "#ffd54a"],
+      [endlessMode ? "生存拍数" : "獲得コイン", endlessMode ? Math.max(0, Math.round(currentBeatOrZero())) : resultCoins, endlessMode ? "#9fb4ff" : "#ffd54a"],
     ];
     g.font = "bold 40px sans-serif";
     let y = 300;
@@ -1617,14 +1654,16 @@ const Game = (() => {
     g.textAlign = "right";
     g.fillStyle = "#9fb4ff";
     g.font = "bold 22px sans-serif";
-    g.fillText(`${selChapter}-${selStage}`, bx - 14, by + barH - 2);
+    g.fillText(endlessMode ? "∞" : `${selChapter}-${selStage}`, bx - 14, by + barH - 2);
     // 枠
     g.fillStyle = "rgba(0,0,0,0.45)";
     g.fillRect(bx - 2, by - 2, barW + 4, barH + 4);
     // 進捗(スタート〜ゴールのタイルXから算出。拍計算は使わない)
     const p = Player.pos();
     const span = level.goalX - level.startX;
-    const ratio = span !== 0 ? Math.max(0, Math.min(1, (p.tx - level.startX) / span)) : 0;
+    const ratio = endlessMode
+      ? ((Math.max(0, currentBeatOrZero() * 60 / Math.max(1, Conductor.bpm)) % CONFIG.ENDLESS.THEME_SEC) / CONFIG.ENDLESS.THEME_SEC)
+      : (span !== 0 ? Math.max(0, Math.min(1, (p.tx - level.startX) / span)) : 0);
     g.fillStyle = "#7fd39b";
     g.fillRect(bx, by, barW * ratio, barH);
     g.strokeStyle = "rgba(255,255,255,0.6)";
@@ -1750,7 +1789,9 @@ const Game = (() => {
     get level() { return level; },
     get seed() { return curSeed; },
     get currentChapter() { return currentChapter; },
+    get endlessMode() { return endlessMode; },
     _gotoStage: gotoStage,
+    _gotoEndless: gotoEndless,
     _gotoCalibration: gotoCalibration,
     _gotoModeSelect: gotoModeSelect,
     _gotoGameSelect: gotoGameSelect,
