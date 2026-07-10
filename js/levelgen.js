@@ -334,6 +334,131 @@ const LevelGen = (() => {
     "########################",
   ];
 
+  // ===== 縦方向拡張(2Dグリッド生成)用のテンプレート群。DESIGN §6「縦方向拡張」 =====
+  //
+  // 【縦連絡路の契約(BORDER_GROUND_Y と同格の規格)】どのテンプレート同士を縦に繋いでも
+  // 整合するよう、チャンク境界の縦通行は固定列で行う:
+  //   ・上り通路(登り):列3〜4  … exit=U の天井開口 / enter=U の床開口 がともに列3〜4で一致
+  //   ・下り穴(落下)  :列11〜12 … exit=D の床穴 / enter=D の天井開口 がともに列11〜12で一致
+  // 登りはジグザグ足場(段差2・横2ずらし)で1拍1アクションずつ上がる(同一列真上の足場は
+  // ジャンプ頭打ちになるため必ず横にずらす)。プレイヤー実測(player.js): 接地ジャンプ+2、
+  // 空中ジャンプ+2(計+4)、空中横移動2タイル。足場の縦間隔は2以下、横間隔は1〜2。
+  //
+  // enter(直前の移動方向) × exit(次の移動方向) の組合せでテンプレートを選ぶ:
+  //   L→R … 純横断(既存 MIDDLE を流用) / L→U / L→D / U→R / U→U / D→R / D→D
+  //   (U→D と D→U は逆行=セル再訪のため生成側で禁止)
+  // 登り足場の規格(exit=U / enter=U のクライム部): plat A=row6 列3-4 / plat B=row4 列5-6 /
+  //   plat C=row1 列3-4(上端)。row7地上→col5で踏み切り→A→B→Cと登り、Cの上(列3-4)から
+  //   上のチャンクの床開口(列3-4)へ抜ける。上のチャンク(enter=U)は列3-4の床穴+着地余地を持つ。
+
+  // L→U(左入口・上へ抜ける)。地上から列3-4の天井開口までジグザグで登る。
+  const V_LU = [
+    "....C...........",
+    "...##...........",  // plat C(上端。列3-4)
+    "................",
+    "......C.........",
+    ".....##.........",  // plat B(列5-6)
+    "................",
+    "...##...........",  // plat A(列3-4)
+    "..........E..I..",  // 敵(列10)+アイテム(列13)
+    "################",
+    "################",
+    "################",
+  ];
+
+  // L→D(左入口・下へ落ちる)。地上を右へ進み列11-12の床穴から落下する。縁にコインで誘導。
+  const V_LD = [
+    "................",
+    "................",
+    "................",
+    "................",
+    "...........C....",  // 落下経路のコイン(列11)
+    "................",
+    "................",
+    ".....E....C.....",  // 敵(列5)+穴の縁のコイン(列10)
+    "###########..###",
+    "###########..###",
+    "###########..###",
+  ];
+
+  // U→R(下から入り・右へ抜ける)。列3-4の床穴から登ってきたプレイヤーが地上へ出て右へ進む。
+  const V_UR = [
+    "................",
+    "................",
+    "................",
+    "................",
+    "................",
+    "................",
+    "......C.........",  // 着地脇のコイン
+    "..........E..C..",  // 敵(列10)+コイン(列13)
+    "###..###########",  // 床穴(列3-4)
+    "###..###########",
+    "###..###########",
+  ];
+
+  // U→U(下から入り・上へ抜ける)。列3-4を貫く登りシャフト(床穴+ジグザグ+天井開口)。
+  const V_UU = [
+    "....C...........",
+    "...##...........",  // plat C(上端。列3-4)
+    "................",
+    "......C.........",
+    ".....##.........",  // plat B(列5-6)
+    "................",
+    "...##...........",  // plat A(列3-4)
+    "..........E..I..",  // 敵(列10)+アイテム(列13)
+    "###..###########",  // 床穴(列3-4)
+    "###..###########",
+    "###..###########",
+  ];
+
+  // D→R(上から落ちて入り・右へ抜ける)。列11-12の天井開口から落下し地上へ着地、右へ進む。
+  const V_DR = [
+    "................",
+    "................",
+    "................",
+    "................",
+    "...........C....",  // 落下経路のコイン(列11)
+    "................",
+    "................",
+    ".....E.......C..",  // 敵(列5)+右へ誘導のコイン(列13)
+    "################",
+    "################",
+    "################",
+  ];
+
+  // D→D(上から落ちて入り・下へ落ちる)。列11-12を貫く落下シャフト(天井開口〜床穴が素通し)。
+  const V_DD = [
+    "................",
+    "................",
+    "............C...",  // シャフト内のコイン(列12)
+    "................",
+    "................",
+    "...........C....",  // シャフト内のコイン(列11)
+    "................",
+    "................",
+    "###########..###",
+    "###########..###",
+    "###########..###",
+  ];
+
+  // パス外セル用の全埋めチャンク(未使用の左右/上下境界を自動的に塞ぐ)。
+  const V_SOLID = [
+    "################",
+    "################",
+    "################",
+    "################",
+    "################",
+    "################",
+    "################",
+    "################",
+    "################",
+    "################",
+    "################",
+  ];
+
+  // enter+exit の2文字キー → テンプレート(L→R は生成側で MIDDLE を使う)。
+  const VTEMPLATES = { LU: V_LU, LD: V_LD, UR: V_UR, UU: V_UU, DR: V_DR, DD: V_DD };
+
   // 文字列配列 → レベル構造体。
   // 返り値: { w, h, tiles(tiles[y][x]=char), startX, startY, goalX, goalY }
   function parse(rows) {
@@ -386,6 +511,186 @@ const LevelGen = (() => {
     return rows;
   }
 
+  // ===== 縦方向拡張(2Dグリッド生成)。DESIGN §6「縦方向拡張」 =====
+
+  // グリッド行数を ROW_WEIGHTS で抽選(1..len)。seed 由来の専用 rng を使い、本体ストリームを汚さない。
+  function pickRows(sd, weights) {
+    const r = rng((sd ^ 0x5f356495) >>> 0);
+    const total = weights.reduce((a, b) => a + b, 0);
+    let t = r() * total;
+    for (let i = 0; i < weights.length; i++) {
+      t -= weights[i];
+      if (t < 0) return i + 1;
+    }
+    return weights.length;
+  }
+
+  // 2Dグリッド生成。スタート→ゴールの一本道パスをランダムウォーク(右/上/下のみ)で作り、
+  // パス上のセルに enter/exit 方向に応じたテンプレートを、パス外セルに V_SOLID を置く。
+  //   sd: この生成に使うseed(rerollで変換される)/ R: グリッド行数 / N: パスセル総数(=従来チャンク数)
+  //   densityMul: E/C/I 採用率係数 / goalDist: レベルに記録する参考値
+  // 返り値: parse済みレベル(BFS未検証)。矛盾時は null(呼び出し側でreroll)。
+  function generateVertical(sd, R, N, densityMul, goalDist) {
+    const S = CONFIG.STAGE;
+    const V = S.VERTICAL || {};
+    const vertRate = (typeof V.VERT_RATE === "number") ? V.VERT_RATE : 0.35;
+    const walk = rng((sd ^ 0xa53c9b6d) >>> 0); // パス・テンプレート選択用の乱数
+
+    // --- ランダムウォークでパスを作る(右R/上U/下D。左は無し=逆行禁止) ---
+    let gr = Math.min(R - 1, Math.floor(walk() * R)); // スタート行(列0)
+    let gc = 0;
+    const cells = [{ gr, gc, inMove: null, outMove: null }];
+    const visited = new Set([gr + "," + gc]);
+    let lastMove = null;
+    const moves = N - 1;
+    for (let i = 0; i < moves; i++) {
+      let mv;
+      // 最初と最後の移動は必ず右(START/GOALテンプレートを無改修で使うため)
+      if (i === 0 || i === moves - 1) {
+        mv = "R";
+      } else {
+        // 縦移動候補(逆行禁止・行範囲内・未訪問)
+        const cand = [];
+        if (lastMove !== "D" && gr - 1 >= 0 && !visited.has((gr - 1) + "," + gc)) cand.push("U");
+        if (lastMove !== "U" && gr + 1 <= R - 1 && !visited.has((gr + 1) + "," + gc)) cand.push("D");
+        if (cand.length > 0 && walk() < vertRate) {
+          mv = cand[Math.min(cand.length - 1, Math.floor(walk() * cand.length))];
+        } else {
+          mv = "R";
+        }
+      }
+      if (mv === "U") gr -= 1;
+      else if (mv === "D") gr += 1;
+      else gc += 1;
+      const key = gr + "," + gc;
+      if (visited.has(key)) return null; // 万一の再訪(通常起きない)→ reroll
+      visited.add(key);
+      cells[cells.length - 1].outMove = mv;
+      cells.push({ gr, gc, inMove: mv, outMove: null });
+      lastMove = mv;
+    }
+
+    // --- グリッド範囲(未使用の行は詰める) ---
+    let minR = Infinity, maxR = -Infinity, maxC = 0;
+    for (const c of cells) {
+      if (c.gr < minR) minR = c.gr;
+      if (c.gr > maxR) maxR = c.gr;
+      if (c.gc > maxC) maxC = c.gc;
+    }
+    const usedR = maxR - minR + 1;
+    const C = maxC + 1;
+
+    // --- テンプレート格子(デフォルト=全埋め)にパスセルのテンプレを配置 ---
+    const gridT = [];
+    for (let r = 0; r < usedR; r++) gridT.push(new Array(C).fill(V_SOLID));
+    let vertMoves = 0;
+    for (let idx = 0; idx < cells.length; idx++) {
+      const c = cells[idx];
+      if (c.inMove === "U" || c.inMove === "D") vertMoves++;
+      gridT[c.gr - minR][c.gc] = pickCellTemplate(idx, cells, walk);
+    }
+
+    // --- 文字列組み立て(グリッド行×ローカル行を上から、列を左から連結) ---
+    const rows = [];
+    for (let cr = 0; cr < usedR; cr++) {
+      for (let lr = 0; lr < S.CHUNK_H; lr++) {
+        let line = "";
+        for (let c = 0; c < C; c++) line += gridT[cr][c][lr];
+        rows.push(line);
+      }
+    }
+    const level = parse(rows);
+
+    // --- スポーン候補(E/C/I)収集。従来 generate と同一ロジック(別系統の乱数) ---
+    const srand = rng((sd ^ 0x1234567) >>> 0);
+    const dMul = (typeof densityMul === "number") ? densityMul : 1;
+    const spawns = [];
+    for (let ty = 0; ty < level.h; ty++) {
+      for (let tx = 0; tx < level.w; tx++) {
+        const ch = level.tiles[ty][tx];
+        if (ch === "E" || ch === "C" || ch === "I") {
+          const base = (S.SPAWN_RATE && S.SPAWN_RATE[ch] != null) ? S.SPAWN_RATE[ch] : 1;
+          const rate = Math.min(1, base * dMul);
+          if (srand() < rate) spawns.push({ type: ch, tx, ty });
+        }
+      }
+    }
+
+    level.spawns = spawns;
+    level.chunkCount = N;
+    level.seed = sd;
+    level.goalDist = goalDist;
+    level.isBoss = false;
+    level.vertical = true;                       // 縦生成で作られたレベル(検証・デバッグ用)
+    level.grid = { rows: usedR, cols: C };       // 実際に使ったグリッド寸法
+    level.vertMoves = vertMoves;                 // 縦移動の回数(統計用)
+    return level;
+  }
+
+  // パスセルの enter(直前の移動)×exit(次の移動)からテンプレートを選ぶ。
+  //   idx=0: START(exit=R) / idx=末尾: GOAL(enter=L) / 純横断(L→R): MIDDLE を流用。
+  function pickCellTemplate(idx, cells, rand) {
+    if (idx === 0) return START;
+    if (idx === cells.length - 1) return GOAL;
+    const c = cells[idx];
+    const e = (c.inMove === "R") ? "L" : c.inMove; // enter文字(R入口=L)
+    const key = e + c.outMove;
+    if (key === "LR") return MIDDLE[pickMiddle(rand, -1)]; // 純横断は既存18種
+    return VTEMPLATES[key] || V_SOLID;                     // 想定外(起きない)は塞ぐ
+  }
+
+  // 生成レベルの到達性(スタート→ゴール)を、実際の移動モデルの「保守的サブセット」でBFS検証する。
+  // 状態=立ちタイル(体が空・足元が壁)。遷移: 横1歩(段差1駆け上がり/歩き落ち)/
+  //   接地ジャンプ上昇≤2(+空中ジャンプで計≤4)+頂点で横0〜2ずらして真下着地。装備ボーナスは含めない。
+  function checkReachable(level) {
+    const solid = (x, y) => solidAt(level, x, y);
+    const isStand = (x, y) => !solid(x, y) && solid(x, y + 1);
+    // 真下の最初の床の上まで落ちた着地行
+    const dropRow = (x, y) => { let ly = y; while (!solid(x, ly + 1)) ly++; return ly; };
+
+    // スタート(足元が空なら落下後の立ち位置に補正)
+    const s = { x: level.startX, y: dropRow(level.startX, level.startY) };
+    const goalX = level.goalX, goalY = level.goalY;
+    const key = (x, y) => x * 100000 + y;
+    const seen = new Set([key(s.x, s.y)]);
+    const stack = [s];
+    const push = (x, y) => { const k = key(x, y); if (!seen.has(k)) { seen.add(k); stack.push({ x, y }); } };
+
+    while (stack.length) {
+      const cur = stack.pop();
+      const x = cur.x, y = cur.y;
+      if (x === goalX && y === goalY) return true;
+
+      // (1) 横1歩(段差1駆け上がり含む)/ 歩き落ち
+      for (const d of [-1, 1]) {
+        const nx = x + d;
+        if (solid(nx, y)) {
+          // 目の前が壁 → 1段上が空+自分の頭上が空なら駆け上がり(段差1)
+          if (!solid(nx, y - 1) && !solid(x, y - 1)) push(nx, y - 1);
+        } else {
+          // 前が空 → 進んで、足元が壁なら立ち、空なら真下へ落ちる
+          if (solid(nx, y + 1)) push(nx, y);
+          else push(nx, dropRow(nx, y));
+        }
+      }
+
+      // (2) ジャンプ:上昇 rise(1..4。頭上が壁なら打ち止め)→ 頂点で横0〜2ずらす → 真下着地
+      for (let rise = 1; rise <= 4; rise++) {
+        const ay = y - rise;
+        if (solid(x, ay)) break; // 頭上が壁 → これ以上上がれない
+        for (const d of [-1, 1]) {
+          for (let sh = 1; sh <= 2; sh++) {
+            const tc = x + d * sh;
+            if (solid(tc, ay)) break; // 頂点の横移動が壁で阻まれた
+            push(tc, dropRow(tc, ay));
+          }
+        }
+        // 横ずらし0(真上→真下)は元位置に戻るだけなので省略
+      }
+    }
+    return false;
+  }
+
   // 自動生成。DESIGN §4/§10:
   //   通常: goalDist = totalBeats × ADVANCE_RATE / chunkCount = max(2, round(goalDist/CHUNK_W))
   //         スタート+中間×n+ゴール。
@@ -397,8 +702,34 @@ const LevelGen = (() => {
     const S = CONFIG.STAGE;
     const tb = totalBeats || S.TEST_BEATS;
     const sd = (seed >>> 0);
-    const rand = rng(sd);
     const isBoss = !!boss;
+
+    // ===== 縦方向拡張(2Dグリッド生成)。DESIGN §6「縦方向拡張」 =====
+    // ボス・無効化・行数抽選=1・パスセル数<4 のいずれかなら、この分岐を素通りして
+    // 従来の横一列生成(下の本体)へフォールバックする。行数抽選と縦生成は sd 由来の
+    // 「別系統」の乱数だけを使うため、下の `rng(sd)` 本体のストリームは一切汚さない
+    // (=フォールバック時の生成結果は従来とバイト単位で一致する)。
+    const V = S.VERTICAL;
+    if (!isBoss && V && V.ENABLED) {
+      const R = pickRows(sd, V.ROW_WEIGHTS || [1]);
+      const gDist = tb * S.ADVANCE_RATE;
+      const N = Math.max(2, Math.round(gDist / S.CHUNK_W));
+      if (R >= 2 && N >= 4) {
+        let s2 = sd;
+        const maxReroll = (typeof V.MAX_REROLL === "number") ? V.MAX_REROLL : 8;
+        for (let attempt = 0; attempt <= maxReroll; attempt++) {
+          let lv = null;
+          try { lv = generateVertical(s2, R, N, densityMul, gDist); } catch (e) { lv = null; }
+          if (lv && checkReachable(lv)) return lv;
+          // BFS失敗 → seedを決定的に変換して再生成(同じ初期seedなら必ず同じ結果になる)
+          s2 = (Math.imul(s2, 2654435761) + 1) >>> 0;
+        }
+        // 全リロール失敗 → 下の従来生成へフォールバック(必ず遊べるステージを返す)
+      }
+    }
+
+    // ===== 従来の横一列生成(以降は改修前と完全に同一。フォールバック/R=1/ボスの経路)=====
+    const rand = rng(sd);
 
     const goalDist = tb * (isBoss ? S.BOSS_RATE : 1) * S.ADVANCE_RATE;
     const chunkCount = Math.max(2, Math.round(goalDist / S.CHUNK_W));
@@ -472,5 +803,9 @@ const LevelGen = (() => {
     ];
   }
 
-  return { generate, rng, parse, solidAt, testLevel, MIDDLE, START, GOAL, ARENA };
+  return {
+    generate, rng, parse, solidAt, testLevel, MIDDLE, START, GOAL, ARENA,
+    // 縦方向拡張(検証・デバッグ用に公開)。DESIGN §6「縦方向拡張」
+    generateVertical, checkReachable, pickRows, VTEMPLATES,
+  };
 })();

@@ -18,6 +18,10 @@ const Game = (() => {
   // 章テーマ(DESIGN §10・Step7)。?chapter=1|2|3 でデバッグ切替(0始まりindexへ変換)。
   // 進行システム(章クリアで解放等)はStep8で実装するため、現状はURLでの固定切替のみ。
   const urlChapter = (location.search.match(/[?&]chapter=([123])\b/) || [])[1];
+  // ?seed= はデバッグ・再現用URLパラメータ(縦生成の検証等)。指定時は beginStage が
+  // この seed で startLevel する(ゴールオーバーの同seedリトライ機構とは startLevel 引数経由で干渉しない)。
+  const urlSeedStr = (location.search.match(/[?&]seed=(\d+)/) || [])[1];
+  const urlSeed = (urlSeedStr !== undefined) ? (parseInt(urlSeedStr, 10) >>> 0) : undefined;
   let currentChapter = urlChapter ? (parseInt(urlChapter, 10) - 1) : 0;
   function chapterTheme() { return CONFIG.CHAPTERS[currentChapter] || CONFIG.CHAPTERS[0]; }
 
@@ -309,6 +313,17 @@ const Game = (() => {
     return Math.max(lo, Math.min(hi, cx));
   }
 
+  // カメラのY方向クランプ範囲(縦方向拡張。DESIGN §6「縦方向拡張」)。Xと対称。
+  // hi<lo(=レベル高さが視界に収まる単行レベル)のときは level.h/2 を返し、
+  // 従来の横一列レベル(cam.y=level.h/2 固定)と完全に一致させる。
+  function camMinY() { return VH / (2 * TILE) - 0.5; }
+  function camMaxY() { return level.h - VH / (2 * TILE) - 0.5; }
+  function clampCamY(cy) {
+    const lo = camMinY(), hi = camMaxY();
+    if (hi < lo) return level.h / 2;
+    return Math.max(lo, Math.min(hi, cy));
+  }
+
   // 新しいレベルを自動生成して状態を初期化。seed省略時は時刻から新規seed。
   function startLevel(seed) {
     curSeed = (seed === undefined) ? (Date.now() >>> 0) : (seed >>> 0);
@@ -332,7 +347,7 @@ const Game = (() => {
     // 拾得アイテム(ハート/シールド/ブースト)の種別抽選もseed由来の別系統の乱数を使う
     if (typeof Items !== "undefined") Items.init(level, LevelGen.rng((curSeed ^ 0x517cc1b7) >>> 0));
     const p = Player.pos();
-    cam.y = level.h / 2;
+    cam.y = clampCamY(p.y); // 単行レベルでは level.h/2 になり従来と一致
     cam.x = clampCamX(p.x);
     goalReached = false;
     combo = 0;
@@ -373,7 +388,8 @@ const Game = (() => {
   // 実際のステージ開始(章開始ストーリー完了後に呼ばれることもある)。
   function beginStage() {
     scene = "stage";
-    startLevel();
+    // ?seed= 指定時はその seed で生成(検証・再現用)。通常は毎回新規 seed。
+    startLevel(urlSeed);
     startStageConductor();
     applySceneUI();
   }
@@ -960,6 +976,8 @@ const Game = (() => {
     // カメラ:プレイヤー描画X+向き先読みへLERP追従、レベル端でクランプ
     const target = clampCamX(p.x + p.dir * CONFIG.CAMERA.FORWARD_TILES);
     cam.x += (target - cam.x) * CONFIG.CAMERA.LERP;
+    // Y追従(縦方向拡張)。Y先読みオフセットは不要。単行レベルでは clampCamY が level.h/2 を返す。
+    cam.y += (clampCamY(p.y) - cam.y) * CONFIG.CAMERA.LERP;
 
     if (bossStage) {
       // ボスステージ:撃破演出(gone)まで見届けてからクリア。ゴール旗の判定はしない。
@@ -1218,7 +1236,10 @@ const Game = (() => {
     const tex = (theme.tileSprite && typeof Sprites !== "undefined") ? Sprites.get(theme.tileSprite) : null;
     const cLo = Math.floor(cam.x - VW / (2 * TILE) - 1);
     const cHi = Math.ceil(cam.x + VW / (2 * TILE) + 1);
-    for (let row = 0; row < level.h; row++) {
+    // 可視行のみ描画(縦方向拡張。列と同様に cam.y から算出)。
+    const rLo = Math.max(0, Math.floor(cam.y - VH / (2 * TILE) - 1));
+    const rHi = Math.min(level.h - 1, Math.ceil(cam.y + VH / (2 * TILE) + 1));
+    for (let row = rLo; row <= rHi; row++) {
       for (let col = cLo; col <= cHi; col++) {
         if (!LevelGen.solidAt(level, col, row)) continue;
         // 範囲外(左右外の壁)は描かない(見た目は空扱いでよい)
@@ -1608,6 +1629,12 @@ const Game = (() => {
     if (level) {
       lines.push(`seed: ${curSeed}`);
       lines.push(`chunkCount: ${level.chunkCount}  goalDist: ${level.goalDist.toFixed(1)}`);
+      // 縦方向拡張(DESIGN §6):グリッド寸法・縦移動数・レベル高さ
+      if (level.vertical && level.grid) {
+        lines.push(`grid: ${level.grid.rows}行×${level.grid.cols}列  vertMoves: ${level.vertMoves}  level.h: ${level.h}`);
+      } else {
+        lines.push(`grid: 横一列(縦拡張なし)  level.h: ${level.h}`);
+      }
     }
     lines.push(`chapter: ${currentChapter + 1} ${chapterTheme().name}  stage: ${selChapter}-${selStage}`);
     lines.push(`char: ${effectiveChar()}  hp: ${Player.hp}/${Player.maxHp}  kills: ${enemiesKilled}`);
@@ -1622,7 +1649,7 @@ const Game = (() => {
     if (scene === "stage" && level) {
       const p = Player.pos();
       lines.push(`player tx,ty: ${p.tx},${p.ty}  state: ${p.state}  inv: ${Player.isInvulnerable() ? 1 : 0}`);
-      lines.push(`cam.x: ${cam.x.toFixed(2)}`);
+      lines.push(`cam.x: ${cam.x.toFixed(2)}  cam.y: ${cam.y.toFixed(2)}`);
     }
     const avg =
       recentDiffs.length > 0
