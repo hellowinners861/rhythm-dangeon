@@ -100,7 +100,10 @@ html, body {
   right: 0;
   bottom: 0;
   z-index: 10;
-  display: flex;
+  /* 初期表示では必ず隠す。game.js の applySceneUI() が stage/calibration の時だけ
+     inline style で flex に切り替える。JS初期化前の1フレームや、楽曲/画像ロード待ちの間に
+     白いタイトル背景へ操作ボタンだけが出るのを防ぐ。 */
+  display: none;
   justify-content: space-between;
   padding: 0 18px 18px;
   pointer-events: none; /* 子ボタンだけ受ける */
