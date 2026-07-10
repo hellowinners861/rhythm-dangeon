@@ -1350,7 +1350,7 @@ const Game = (() => {
       g.fillText("♪ 曲内クリア! コイン2倍! ♪", VW / 2, 314);
     }
 
-    // 判定内訳
+    // 判定内訳。スマホ横画面でも一目で読めるよう、縦1列ではなく4行×2列に分ける。
     const rows = [
       ["PERFECT", judgeStats.perfect, "#ffd54a"],
       ["GOOD", judgeStats.good, "#5adf7a"],
@@ -1361,16 +1361,25 @@ const Game = (() => {
       ["所要拍数", Math.max(0, Math.round(goalBeat)), "#e8ecff"],
       ["獲得コイン", resultCoins, "#ffd54a"],
     ];
-    g.font = "bold 40px sans-serif";
-    let y = 344;
-    for (const [label, val, col] of rows) {
+    const colW = 460;
+    const colGap = 72;
+    const startX = VW / 2 - colGap / 2 - colW;
+    const startY = 356;
+    const rowGap = 54;
+    const labelValGap = 22;
+    g.font = "bold 34px sans-serif";
+    for (let i = 0; i < rows.length; i++) {
+      const [label, val, col] = rows[i];
+      const colIdx = i % 2;
+      const rowIdx = Math.floor(i / 2);
+      const x = startX + colIdx * (colW + colGap);
+      const y = startY + rowIdx * rowGap;
       g.textAlign = "right";
       g.fillStyle = "#aeb6d6";
-      g.fillText(label, VW / 2 - 30, y);
+      g.fillText(label, x + colW * 0.58, y);
       g.textAlign = "left";
       g.fillStyle = col;
-      g.fillText(String(val), VW / 2 + 30, y);
-      y += 56;
+      g.fillText(String(val), x + colW * 0.58 + labelValGap, y);
     }
 
     // 出撃準備へ戻る案内(点滅)
