@@ -262,6 +262,9 @@ const Game = (() => {
     resize();
     window.addEventListener("resize", resize);
     window.addEventListener("orientationchange", resize);
+    // 全画面化・解除でresizeが発火しない環境の保険
+    document.addEventListener("fullscreenchange", resize);
+    document.addEventListener("webkitfullscreenchange", resize);
 
     requestAnimationFrame(loop);
   }
@@ -284,10 +287,28 @@ const Game = (() => {
     canvas.height = Math.round(h * dpr);
   }
 
+  // タイトルタップ(ユーザージェスチャ内)で全画面化を試みる。Safari等のツールバーを隠す狙い。
+  // 未対応環境・ユーザー拒否・Promise拒否は握りつぶし、ゲーム進行には影響させない。
+  function requestFullscreenSafe() {
+    try {
+      if (document.fullscreenElement || document.webkitFullscreenElement) return; // 既に全画面なら何もしない
+      const el = document.documentElement;
+      if (el.requestFullscreen) {
+        el.requestFullscreen({ navigationUI: "hide" }).catch(() => {});
+      } else if (el.webkitRequestFullscreen) {
+        // iOS Safari 16.4+/旧WebKit向けフォールバック
+        el.webkitRequestFullscreen();
+      }
+    } catch (e) {
+      /* 全画面非対応・拒否は無視してゲーム進行を止めない */
+    }
+  }
+
   // ---- シーン遷移 ----
   // タイトルタップ後はモード選択へ(従来の即ステージ開始をやめる。DESIGN §1)
   function startFromTitle() {
     if (!songReady) return; // 楽曲の読み込み完了前はタップを無視
+    requestFullscreenSafe();
     SFX.resume().then(() => {
       gotoModeSelect();
     });
@@ -912,6 +933,11 @@ const Game = (() => {
     requestAnimationFrame(loop);
   }
 
+  // ゴール判定:旗タイルに触れる、または旗より右側にいれば成立(2タイル移動・ジャンプでの飛び越し対策)。
+  function goalHit(p) {
+    return (p.tx === level.goalX && p.ty === level.goalY) || p.tx > level.goalX;
+  }
+
   function updateStage(dt) {
     // 現在が休符区間(div=0)か。休符中は敵・ボスの拍処理を止める(プレイヤーは judge が REST)。
     restNow = Conductor.running && Conductor.sectionAt(Conductor.currentBeat()).div === 0;
@@ -999,8 +1025,8 @@ const Game = (() => {
       return;
     }
 
-    // ゴール判定(同タイル)→ 紙吹雪演出を挟んでリザルトへ
-    if (p.tx === level.goalX && p.ty === level.goalY) {
+    // ゴール判定(同タイル、または旗の右側)→ 紙吹雪演出を挟んでリザルトへ
+    if (goalHit(p)) {
       goalReached = true;
       goalBeat = currentBeatOrZero();
       // 曲が終わる前にゴールしたか(曲内クリアボーナス)。DESIGN §4
@@ -1730,5 +1756,7 @@ const Game = (() => {
       if (!level || !level.arena) return;
       Player._debugSetTile(level.arena.triggerX, level.arena.standRow);
     },
+    // 検証用:ゴール判定式を直接叩く(tx, ty)。
+    _debugGoalHit: (tx, ty) => goalHit({ tx, ty }),
   };
 })();
