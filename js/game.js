@@ -262,9 +262,16 @@ const Game = (() => {
     resize();
     window.addEventListener("resize", resize);
     window.addEventListener("orientationchange", resize);
-    // 全画面化・解除でresizeが発火しない環境の保険
-    document.addEventListener("fullscreenchange", resize);
-    document.addEventListener("webkitfullscreenchange", resize);
+    // 全画面化・解除:resizeの保険+:rootへ is-fullscreen クラスを付け外しする。
+    // 全画面中はiOSのシステムUI(左上の全画面終了ボタン)が上部ボタンのタップを奪うことがあるため、
+    // CSS側(style.css)でホーム画面のヘッダーを下へ逃がすのに使う。
+    const onFullscreenChange = () => {
+      const fs = !!(document.fullscreenElement || document.webkitFullscreenElement);
+      document.documentElement.classList.toggle("is-fullscreen", fs);
+      resize();
+    };
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+    document.addEventListener("webkitfullscreenchange", onFullscreenChange);
 
     requestAnimationFrame(loop);
   }
