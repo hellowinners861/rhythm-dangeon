@@ -118,6 +118,8 @@ const Conductor = (() => {
       const res = await fetch(s.audio);
       const arr = await res.arrayBuffer();
       buffer = await SFX.ctx.decodeAudioData(arr);
+      // trimSec指定曲は先頭を切り落とす(song03: 冒頭3秒カット。offset/totalBeatsはトリム後基準)
+      if (s.trimSec) buffer = SFX.trimBuffer(buffer, s.trimSec);
       const beatSec = 60 / s.bpm;
       totalBeats = Math.floor((buffer.duration - s.offset) / beatSec);
       songLoaded = true;
