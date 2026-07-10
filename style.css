@@ -178,13 +178,21 @@ html, body {
   -webkit-overflow-scrolling: touch;
 }
 
-/* ホーム系4画面(モード選択/出撃準備/オプション/曲視聴)の共通背景画像(草原で遊ぶ3キャラ)。
+/* ホーム系画面(モード選択/オプション/曲視聴)の共通背景画像(草原で遊ぶ3キャラ)。
    明るい絵なので、白文字のUIが読めるよう強めの暗色グラデーションを重ねる。
    ✦アーティファクトはファイル側で修復済み(CSS背景は読み込み時パッチが効かないため)。 */
-#screen-modeselect, #screen-ready, #screen-options, #screen-jukebox {
+#screen-modeselect, #screen-options, #screen-jukebox {
   background:
     linear-gradient(rgba(6, 7, 14, 0.66), rgba(6, 7, 14, 0.80)),
     url("assets/bg_home.png") center / cover no-repeat,
+    rgba(6, 7, 14, 0.97);
+}
+
+/* 出撃準備だけは隠れ家の部屋(ユーザー指定)。 */
+#screen-ready {
+  background:
+    linear-gradient(rgba(6, 7, 14, 0.60), rgba(6, 7, 14, 0.78)),
+    url("assets/bg_ready.png") center / cover no-repeat,
     rgba(6, 7, 14, 0.97);
 }
 
