@@ -42,6 +42,37 @@
       </div>
     </div>
 
+
+    <!-- ゲーム開始方法選択 -->
+    <div id="screen-game-select" class="home-screen hidden">
+      <h1 class="home-title">ゲームへ</h1>
+      <div class="home-btn-col">
+        <button id="btn-new-game" class="home-btn">はじめから</button>
+        <button id="btn-continue-game" class="home-btn">つづきから</button>
+        <button id="btn-game-select-back" class="home-btn small">◀ モード選択へ</button>
+      </div>
+    </div>
+
+    <!-- セーブデータスロット選択 -->
+    <div id="screen-save-slots" class="home-screen hidden">
+      <div class="home-header">
+        <button id="btn-save-slots-back" class="ui-btn small">◀ 戻る</button>
+      </div>
+      <h1 id="save-slots-title" class="home-title">セーブデータ</h1>
+      <div id="save-slot-list" class="save-slot-list"></div>
+    </div>
+
+    <!-- セーブ上書き確認 -->
+    <div id="screen-overwrite-confirm" class="home-screen hidden overlay-modal">
+      <div class="modal-box modal-box-small">
+        <div>このセーブデータを消去してはじめからやり直しますか？</div>
+        <div class="modal-btn-row">
+          <button id="btn-overwrite-yes" class="ui-btn">はい</button>
+          <button id="btn-overwrite-no" class="ui-btn">いいえ</button>
+        </div>
+      </div>
+    </div>
+
     <!-- 出撃準備 -->
     <div id="screen-ready" class="home-screen hidden">
       <div class="home-header">

@@ -473,6 +473,19 @@ const Game = (() => {
   }
 
   // 出撃準備(キャラ/装備/ショップ)。リザルト/ゲームオーバーのタップ後もここへ戻る。
+  function gotoGameSelect() {
+    scene = "gameselect";
+    Conductor.stop();
+    applySceneUI();
+  }
+
+  function syncFromSave() {
+    selChapter = SAVE.data.progress.unlockedChapter;
+    selStage = SAVE.data.progress.unlockedStage;
+    Conductor.previewCalibration(SAVE.data.calibrationMs);
+    SFX.setVolume(SAVE.data.volumes.bgm, SAVE.data.volumes.se);
+  }
+
   function gotoReady() {
     scene = "ready";
     Conductor.stop();
@@ -1733,8 +1746,10 @@ const Game = (() => {
     _gotoStage: gotoStage,
     _gotoCalibration: gotoCalibration,
     _gotoModeSelect: gotoModeSelect,
+    _gotoGameSelect: gotoGameSelect,
     _gotoReady: gotoReady,
     _gotoOptions: gotoOptions,
+    _syncFromSave: syncFromSave,
     _gotoJukebox: gotoJukebox,
     // 出撃準備でのキャラ選択(home.jsから呼ばれる。?charのURL指定がある場合は無視される)
     _getChar: effectiveChar,
