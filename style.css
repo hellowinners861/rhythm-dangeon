@@ -178,6 +178,15 @@ html, body {
   -webkit-overflow-scrolling: touch;
 }
 
+/* 出撃準備の背景画像(隠れ家の部屋)。白文字のUIが読めるよう暗色グラデーションを重ねる。
+   ✦アーティファクトはファイル側で修復済み(CSS背景は読み込み時パッチが効かないため)。 */
+#screen-ready {
+  background:
+    linear-gradient(rgba(6, 7, 14, 0.60), rgba(6, 7, 14, 0.78)),
+    url("assets/bg_ready.png") center / cover no-repeat,
+    rgba(6, 7, 14, 0.97);
+}
+
 /* 全要素に touch-action: none を掛けている冒頭の * ルール(ゲーム側のタップ精度優先のため)が
    ホーム画面配下の子要素(ボタン・行など)にもそのまま効いてしまい、
    「.item-row 等の上ではスクロールできない」不具合の原因だった。
