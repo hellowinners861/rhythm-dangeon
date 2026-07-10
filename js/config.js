@@ -175,7 +175,15 @@ const CONFIG = {
   // GAINはbgmGain(BGM音量スライダー)の手前に挟む個別音量(0..1)。
   HOME_BGM: { GAIN: 0.35 },
 
-  // 装備40種(頭・体・足・武器 × 各10種)。DESIGN §9。
+
+  // 装備枠解放。各部位は初期1枠、コインで最大3枠まで解放できる。
+  EQUIP_SLOTS: {
+    INITIAL: 1,
+    MAX: 3,
+    UNLOCK_PRICES: [0, 800, 1800], // 2枠目/3枠目の解放価格
+  },
+
+  // 装備120種(頭・体・足・武器 × 各30種)。DESIGN §9。
   // fxは Equip.stats() が集計する効果語彙(js/equip.js 参照)。
   EQUIPMENT: {
     head: [
@@ -189,6 +197,27 @@ const CONFIG = {
       { id: "shogunkabuto",icon: "⛑️", name: "将軍の兜",       desc: "被ダメージ30%減+ノックバック無効", price: 600,  fx: { defMul: 0.7, knockbackMul: 0 } },
       { id: "witchhat",    icon: "🧙",  name: "魔女の帽子",     desc: "攻撃力+1",                         price: 500,  fx: { atk: 1 } },
       { id: "dragonhelm",  icon: "🐲",  name: "龍の兜",         desc: "被ダメージ60%減",                   price: 1200, fx: { defMul: 0.4 } },
+
+      { id: "moonvisor",   icon: "🌙", name: "月影バイザー",     desc: "GOOD判定窓+10ms、コイン+10%",       price: 550,  fx: { goodWindow: 10, coinMul: 1.1 } },
+      { id: "suncrest",    icon: "☀️", name: "太陽の紋章兜",     desc: "最大HP+1、フィーバー必要コンボ-2",   price: 650,  fx: { maxHp: 1, feverReq: -2 } },
+      { id: "glasscrown",  icon: "💎", name: "硝子の王冠",       desc: "PERFECT判定窓+25ms、被ダメージ+10%", price: 900,  fx: { perfectWindow: 25, defMul: 1.1 } },
+      { id: "drumcap",     icon: "🥁", name: "鼓笛隊の帽子",     desc: "コンボ攻撃の上限+1、GOOD判定窓+5ms", price: 700,  fx: { comboAtkMax: 1, goodWindow: 5 } },
+      { id: "mirrorhelm",  icon: "🪞", name: "鏡面ヘルム",       desc: "敵弾ダメージ25%減、コイン+15%",     price: 850,  fx: { projDefMul: 0.75, coinMul: 1.15 } },
+      { id: "stormhood",   icon: "🌩️", name: "嵐呼びのフード",   desc: "攻撃力+1、PERFECT判定窓+5ms",       price: 750,  fx: { atk: 1, perfectWindow: 5 } },
+      { id: "leafmask",    icon: "🍃", name: "木の葉の面",       desc: "ナイト系に気づかれにくく、被ダメージ5%減", price: 720, fx: { stealth: true, defMul: 0.95 } },
+      { id: "anchorhelm",  icon: "⚓", name: "碇の兜",           desc: "ノックバック無効、ジャンプ高さ-1",   price: 700,  fx: { knockbackMul: 0, jumpPlus: -1 } },
+      { id: "metronomehat",icon: "📐", name: "メトロノーム帽",   desc: "GOOD判定窓+15ms、PERFECT判定窓+8ms", price: 800,  fx: { goodWindow: 15, perfectWindow: 8 } },
+      { id: "coinberet",   icon: "🪙", name: "集金ベレー",       desc: "コイン+30%、攻撃力-1",             price: 900,  fx: { coinMul: 1.3, atk: -1 } },
+      { id: "bulwarkhelm", icon: "🏰", name: "城壁ヘルム",       desc: "被ダメージ40%減、空中制御-1",       price: 950,  fx: { defMul: 0.6, airControlPlus: -1 } },
+      { id: "focusband",   icon: "🎯", name: "集中の鉢巻",       desc: "PERFECT時の攻撃力+1、MISS時コンボ半減", price: 1000, fx: { atkPerfect: 1, missComboHalf: true } },
+      { id: "echoear",     icon: "👂", name: "反響イヤーカフ",   desc: "GOOD判定窓+25ms、敵弾ダメージ10%減", price: 950,  fx: { goodWindow: 25, projDefMul: 0.9 } },
+      { id: "cathood",     icon: "🐱", name: "猫耳フード",       desc: "空中制御+1、コイン磁力+1",          price: 850,  fx: { airControlPlus: 1, magnet: 1 } },
+      { id: "skullmask",   icon: "💀", name: "しゃれこうべ面",   desc: "攻撃力+2、最大HP-1",               price: 950,  fx: { atk: 2, maxHp: -1 } },
+      { id: "prismtiara",  icon: "🔮", name: "プリズムティアラ", desc: "フィーバー必要コンボ-6、被ダメージ+15%", price: 1100, fx: { feverReq: -6, defMul: 1.15 } },
+      { id: "safetyhelmet",icon: "🚧", name: "安全第一ヘルメット", desc: "開始時シールド1回、ノックバック半減", price: 1000, fx: { shieldStart: 1, knockbackMul: 0.5 } },
+      { id: "bardhat",     icon: "🎻", name: "吟遊詩人の帽子",   desc: "フィーバー中攻撃力+1、コイン+10%",   price: 1050, fx: { feverAtk: 1, coinMul: 1.1 } },
+      { id: "voidcrown",   icon: "🕳️", name: "虚無の冠",         desc: "被ダメージ70%減、GOOD判定窓-20ms",  price: 1600, fx: { defMul: 0.3, goodWindow: -20 } },
+      { id: "beatantenna", icon: "📡", name: "ビートアンテナ",   desc: "PERFECT判定窓+10ms、周囲3タイルのコイン回収", price: 1300, fx: { perfectWindow: 10, magnet: 3 } },
     ],
     body: [
       { id: "clothtop",     icon: "👕", name: "布の服",         desc: "最大HP+1",                         price: 100,  fx: { maxHp: 1 } },
@@ -201,6 +230,27 @@ const CONFIG = {
       { id: "silverarmor",  icon: "❄️", name: "白銀の鎧",      desc: "最大HP+2+開始時シールド1回",         price: 850,  fx: { maxHp: 2, shieldStart: 1 } },
       { id: "slimesuit",    icon: "🟢", name: "スライムスーツ", desc: "ノックバック無効+最大HP+1",         price: 500,  fx: { knockbackMul: 0, maxHp: 1 } },
       { id: "phoenixrobe",  icon: "🔥", name: "不死鳥の羽衣",   desc: "HP0時に1回だけHP1で復活(1ステージ1回)", price: 1200, fx: { revive: true } },
+
+      { id: "chainmail",   icon: "⛓️", name: "鎖かたびら",       desc: "最大HP+1、敵弾ダメージ20%減",       price: 650,  fx: { maxHp: 1, projDefMul: 0.8 } },
+      { id: "windcloak",   icon: "🧣", name: "風切りマント",     desc: "空中制御+1、被ダメージ10%増",       price: 600,  fx: { airControlPlus: 1, defMul: 1.1 } },
+      { id: "coinvest",    icon: "💰", name: "金庫ベスト",       desc: "コイン+25%、ノックバック半減",      price: 900,  fx: { coinMul: 1.25, knockbackMul: 0.5 } },
+      { id: "medicrobe",   icon: "⚕️", name: "衛生ローブ",       desc: "最大HP+1、撃破時8%でHP回復",        price: 850,  fx: { maxHp: 1, vampire: 0.08 } },
+      { id: "sparkjacket", icon: "✨", name: "火花ジャケット",   desc: "フィーバー突入時に全体1ダメージ、被ダメージ5%減", price: 950, fx: { feverLightning: true, defMul: 0.95 } },
+      { id: "paperarmor",  icon: "📜", name: "紙の鎧",           desc: "GOOD判定窓+30ms、被ダメージ+20%",   price: 700,  fx: { goodWindow: 30, defMul: 1.2 } },
+      { id: "heavyplate",  icon: "🪨", name: "重装プレート",     desc: "最大HP+4、空中制御-1",             price: 1000, fx: { maxHp: 4, airControlPlus: -1 } },
+      { id: "dancersuit",  icon: "💃", name: "舞踏服",           desc: "フィーバー必要コンボ-2、ジャンプ+1", price: 850,  fx: { feverReq: -2, jumpPlus: 1 } },
+      { id: "mirrorcoat",  icon: "🪩", name: "ミラーコート",     desc: "敵弾ダメージ35%減、PERFECT窓+5ms", price: 950,  fx: { projDefMul: 0.65, perfectWindow: 5 } },
+      { id: "berserkfur",  icon: "🐺", name: "狂獣の毛皮",       desc: "攻撃力+2、被ダメージ+20%",         price: 1000, fx: { atk: 2, defMul: 1.2 } },
+      { id: "floatrobe",   icon: "🫧", name: "浮遊ローブ",       desc: "ジャンプ+1、ノックバック距離25%減", price: 900, fx: { jumpPlus: 1, knockbackMul: 0.75 } },
+      { id: "luckkimono",  icon: "👘", name: "福招きの着物",     desc: "コイン+40%、最大HP-1",             price: 1100, fx: { coinMul: 1.4, maxHp: -1 } },
+      { id: "aegisvest",   icon: "🔰", name: "守護紋ベスト",     desc: "開始時シールド2回",               price: 1200, fx: { shieldStart: 2 } },
+      { id: "thornmail",   icon: "🦔", name: "返し針の鎧",       desc: "接触反撃2ダメージ、被ダメージ10%増", price: 1150, fx: { thorns: 2, defMul: 1.1 } },
+      { id: "silentcape",  icon: "🌫️", name: "無音のケープ",     desc: "ナイト系に気づかれず、GOOD窓+10ms", price: 1000, fx: { stealth: true, goodWindow: 10 } },
+      { id: "phoenixcoat", icon: "🦅", name: "再燃の外套",       desc: "復活1回、コイン+10%",             price: 1600, fx: { revive: true, coinMul: 1.1 } },
+      { id: "magnetapron", icon: "🧲", name: "磁力エプロン",     desc: "周囲4タイルのコイン回収、最大HP+1", price: 1300, fx: { magnet: 4, maxHp: 1 } },
+      { id: "tempojersey", icon: "🏃", name: "テンポジャージ",   desc: "移動距離2倍、被ダメージ+15%",      price: 1400, fx: { moveDist: 2, defMul: 1.15 } },
+      { id: "royalarmor",  icon: "🦁", name: "王獣の鎧",         desc: "最大HP+3、攻撃力+1、コイン+15%",   price: 1800, fx: { maxHp: 3, atk: 1, coinMul: 1.15 } },
+      { id: "nullmantle",  icon: "🌌", name: "無響マント",       desc: "被ダメージ45%減、フィーバー必要+2", price: 1500, fx: { defMul: 0.55, feverReq: 2 } },
     ],
     feet: [
       { id: "leatherboots",  icon: "🥾", name: "革のブーツ",     desc: "ノックバック距離半減",             price: 100,  fx: { knockbackMul: 0.5 } },
@@ -213,6 +263,27 @@ const CONFIG = {
       { id: "featherboots",  icon: "🪽", name: "羽の靴",         desc: "1拍あたりの移動距離2倍",           price: 700,  fx: { moveDist: 2 } },
       { id: "idatensocks",   icon: "💨", name: "韋駄天足袋",     desc: "ジャンプ高さ+1+空中制御+1",         price: 650,  fx: { jumpPlus: 1, airControlPlus: 1 } },
       { id: "timeshoes",     icon: "⏳", name: "時の靴",         desc: "MISS時にコンボが0でなく半減で済む", price: 1000, fx: { missComboHalf: true } },
+
+      { id: "coinloafers", icon: "🪙", name: "集金ローファー",   desc: "コイン+20%、コイン磁力+1",         price: 650,  fx: { coinMul: 1.2, magnet: 1 } },
+      { id: "cloudshoes",  icon: "☁️", name: "雲渡りの靴",       desc: "ジャンプ+2、被ダメージ+10%",       price: 900,  fx: { jumpPlus: 2, defMul: 1.1 } },
+      { id: "brakeboots",  icon: "🛑", name: "制動ブーツ",       desc: "ノックバック無効、移動距離は伸びない", price: 650, fx: { knockbackMul: 0 } },
+      { id: "wingheels",   icon: "🪽", name: "翼のかかと",       desc: "空中制御+2",                       price: 950,  fx: { airControlPlus: 2 } },
+      { id: "goldgeta",    icon: "🟨", name: "黄金下駄",         desc: "コイン+35%、ジャンプ-1",           price: 1000, fx: { coinMul: 1.35, jumpPlus: -1 } },
+      { id: "ninjatabi",   icon: "🥷", name: "忍び足袋",         desc: "ナイト系に気づかれず、空中制御+1", price: 900,  fx: { stealth: true, airControlPlus: 1 } },
+      { id: "guardianboots",icon:"🛡️", name: "守護ブーツ",       desc: "最大HP+1、ノックバック半減",       price: 800,  fx: { maxHp: 1, knockbackMul: 0.5 } },
+      { id: "sparkrollers",icon: "🛼", name: "火花ローラー",     desc: "移動距離2倍、GOOD判定窓-10ms",    price: 1100, fx: { moveDist: 2, goodWindow: -10 } },
+      { id: "moonboots",   icon: "🌕", name: "月面ブーツ",       desc: "ジャンプ+1、落下後も空中制御+1",   price: 950,  fx: { jumpPlus: 1, airControlPlus: 1 } },
+      { id: "vampclogs",   icon: "🩸", name: "吸血木靴",         desc: "撃破時5%でHP回復、攻撃力+1",      price: 1050, fx: { vampire: 0.05, atk: 1 } },
+      { id: "shieldgreaves",icon:"🥾", name: "盾のすね当て",     desc: "開始時シールド1回、ノックバック25%減", price: 1000, fx: { shieldStart: 1, knockbackMul: 0.75 } },
+      { id: "rhythmheels", icon: "👠", name: "リズムヒール",     desc: "PERFECT窓+10ms、GOOD窓+10ms",     price: 900,  fx: { perfectWindow: 10, goodWindow: 10 } },
+      { id: "stormboots",  icon: "🌪️", name: "嵐走りの靴",       desc: "空中制御+1、フィーバー中攻撃+1",   price: 1100, fx: { airControlPlus: 1, feverAtk: 1 } },
+      { id: "castleboots", icon: "🏰", name: "城塞ブーツ",       desc: "被ダメージ20%減、ジャンプ-1",      price: 950,  fx: { defMul: 0.8, jumpPlus: -1 } },
+      { id: "maglevsoles", icon: "🚄", name: "磁気浮上ソール",   desc: "移動距離2倍、コイン磁力+2",        price: 1500, fx: { moveDist: 2, magnet: 2 } },
+      { id: "glassslippers",icon:"👡", name: "硝子の靴",         desc: "PERFECT窓+20ms、最大HP-1",        price: 1200, fx: { perfectWindow: 20, maxHp: -1 } },
+      { id: "reviveboots", icon: "🕯️", name: "灯火ブーツ",       desc: "復活1回、ノックバック半減",       price: 1600, fx: { revive: true, knockbackMul: 0.5 } },
+      { id: "titanfeet",   icon: "🦶", name: "巨人の足具",       desc: "最大HP+2、空中制御-1",             price: 1100, fx: { maxHp: 2, airControlPlus: -1 } },
+      { id: "luckysocks",  icon: "🍀", name: "幸運の靴下",       desc: "コイン+15%、撃破時5%でHP回復",    price: 1000, fx: { coinMul: 1.15, vampire: 0.05 } },
+      { id: "beatboosters",icon: "🚀", name: "ビートブースター", desc: "ジャンプ+1、移動距離2倍、被ダメージ+10%", price: 1700, fx: { jumpPlus: 1, moveDist: 2, defMul: 1.1 } },
     ],
     weapon: [
       { id: "fistring",       icon: "💍", name: "拳のリング",     desc: "攻撃力+1",                                 price: 150,  fx: { atk: 1 } },
@@ -225,6 +296,27 @@ const CONFIG = {
       { id: "blastgem",       icon: "💥", name: "爆裂の宝玉",     desc: "撃破した敵の周囲1タイルに巻き込みダメージ", price: 800,  fx: { blast: true } },
       { id: "thunderflute",   icon: "⚡",  name: "雷の笛",         desc: "フィーバー突入時、画面内の敵全体に1ダメージ", price: 600,  fx: { feverLightning: true } },
       { id: "legendsound",    icon: "🎶", name: "伝説の音塊",     desc: "攻撃力+2、PERFECT時さらに+1、コイン+25%",   price: 1500, fx: { atk: 2, atkPerfect: 1, coinMul: 1.25 } },
+
+      { id: "coinblade",   icon: "🪙", name: "集金ブレード",     desc: "攻撃力+1、コイン+15%",             price: 650,  fx: { atk: 1, coinMul: 1.15 } },
+      { id: "glassdagger", icon: "🔪", name: "硝子の短剣",       desc: "PERFECT時攻撃+3、最大HP-1",       price: 850,  fx: { atkPerfect: 3, maxHp: -1 } },
+      { id: "shieldmace",  icon: "🔨", name: "盾砕きメイス",     desc: "攻撃力+1、ノックバック半減",       price: 700,  fx: { atk: 1, knockbackMul: 0.5 } },
+      { id: "stormlute",   icon: "🎸", name: "嵐のリュート",     desc: "フィーバー突入時全体1ダメージ、攻撃+1", price: 950, fx: { feverLightning: true, atk: 1 } },
+      { id: "needlewand",  icon: "🪡", name: "針の指揮棒",       desc: "接触反撃1、PERFECT窓+5ms",        price: 750,  fx: { thorns: 1, perfectWindow: 5 } },
+      { id: "vampblade",   icon: "🗡️", name: "吸血剣",           desc: "攻撃力+1、撃破時12%でHP回復",      price: 1100, fx: { atk: 1, vampire: 0.12 } },
+      { id: "magnetgun",   icon: "🔫", name: "磁力銃",           desc: "攻撃力+1、コイン磁力+3",          price: 1000, fx: { atk: 1, magnet: 3 } },
+      { id: "reststaff",   icon: "🪄", name: "休符の杖",         desc: "GOOD窓+20ms、攻撃力-1",           price: 700,  fx: { goodWindow: 20, atk: -1 } },
+      { id: "royalspear",  icon: "🔱", name: "王家の槍",         desc: "攻撃力+2、コイン+10%",             price: 1150, fx: { atk: 2, coinMul: 1.1 } },
+      { id: "bomborb",     icon: "💣", name: "爆心オーブ",       desc: "撃破時爆発、被ダメージ10%増",     price: 950,  fx: { blast: true, defMul: 1.1 } },
+      { id: "piercebow",   icon: "🏹", name: "貫き弓",           desc: "貫通、PERFECT時攻撃+1",           price: 1000, fx: { pierce: true, atkPerfect: 1 } },
+      { id: "combocharm",  icon: "📿", name: "連撃のお守り",     desc: "コンボ8ごと攻撃+1、最大+4",       price: 1200, fx: { comboAtkStep: 8, comboAtkMax: 4 } },
+      { id: "feveraxe",    icon: "🪓", name: "熱狂の斧",         desc: "フィーバー中攻撃+2、必要コンボ+2", price: 1150, fx: { feverAtk: 2, feverReq: 2 } },
+      { id: "quietbell",   icon: "🔔", name: "静音ベル",         desc: "ナイト系に気づかれず、攻撃+1",     price: 1000, fx: { stealth: true, atk: 1 } },
+      { id: "guardianrod", icon: "🦯", name: "守護のロッド",     desc: "開始時シールド1回、攻撃+1",        price: 1050, fx: { shieldStart: 1, atk: 1 } },
+      { id: "prismcannon", icon: "🌈", name: "プリズム砲",       desc: "攻撃力+3、GOOD窓-15ms",           price: 1500, fx: { atk: 3, goodWindow: -15 } },
+      { id: "phoenixclaw", icon: "🔥", name: "不死鳥の爪",       desc: "復活1回、攻撃力+1",               price: 1700, fx: { revive: true, atk: 1 } },
+      { id: "tidalharp",   icon: "🌊", name: "潮騒のハープ",     desc: "GOOD窓+10ms、撃破時6%でHP回復",   price: 950,  fx: { goodWindow: 10, vampire: 0.06 } },
+      { id: "voidscythe",  icon: "🌑", name: "虚無の大鎌",       desc: "攻撃力+4、最大HP-2",              price: 1800, fx: { atk: 4, maxHp: -2 } },
+      { id: "beatscepter", icon: "👑", name: "拍王の王笏",       desc: "攻撃+2、PERFECT時+2、コイン+20%", price: 2200, fx: { atk: 2, atkPerfect: 2, coinMul: 1.2 } },
     ],
   },
 
