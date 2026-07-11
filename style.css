@@ -1,5 +1,13 @@
 /* リズムダンジョン スタイル(スマホ横画面・タッチ専用) */
 
+:root {
+  /* UIモーションは拍同期から独立。短いフィードバックだけに限定する */
+  --motion-fast: 120ms;
+  --motion-standard: 200ms;
+  --ease-out-ui: cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+
 * {
   margin: 0;
   padding: 0;
@@ -52,9 +60,14 @@ html, body {
   padding: 8px 14px;
   min-height: 40px;
   cursor: pointer;
+  transition:
+    transform var(--motion-fast) var(--ease-out-ui),
+    background-color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease;
 }
 .ui-btn:active {
   background: rgba(90, 100, 150, 0.9);
+  transform: scale(0.97);
 }
 
 #calib-panel {
@@ -129,12 +142,16 @@ html, body {
   align-items: center;
   justify-content: center;
   line-height: 1;
+  transition:
+    transform var(--motion-fast) var(--ease-out-ui),
+    background-color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease;
 }
 /* 押下フィードバック */
 .act-btn:active {
   background: rgba(150, 170, 240, 0.85);
   border-color: #fff;
-  transform: scale(0.94);
+  transform: scale(0.96);
 }
 
 /* ---- 縦持ち警告 ---- */
@@ -179,6 +196,18 @@ html, body {
   pointer-events: auto;
   touch-action: pan-y;
   -webkit-overflow-scrolling: touch;
+  animation: home-screen-enter var(--motion-standard) var(--ease-out-ui) both;
+}
+
+@keyframes home-screen-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* ホーム系画面(モード選択/オプション/曲視聴)の共通背景画像(草原で遊ぶ3キャラ)。
@@ -242,8 +271,15 @@ html, body {
   border-radius: 10px;
   padding: 8px 14px;
   cursor: pointer;
+  transition:
+    transform var(--motion-fast) var(--ease-out-ui),
+    background-color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease;
 }
-.home-btn:active { background: rgba(120, 140, 210, 0.9); }
+.home-btn:active {
+  background: rgba(120, 140, 210, 0.9);
+  transform: scale(0.97);
+}
 .home-btn.small { min-height: 30px; font-size: 12px; padding: 5px 10px; }
 
 .launch-btn {
@@ -324,7 +360,12 @@ html, body {
   border-radius: 8px;
   padding: 5px 4px;
   cursor: pointer;
+  transition:
+    transform var(--motion-fast) var(--ease-out-ui),
+    background-color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease;
 }
+.char-slot:active:not(.locked) { transform: scale(0.97); }
 .char-slot.selected { border-color: #ffd54a; }
 .char-slot.locked { opacity: 0.72; }
 .char-swatch {
@@ -395,7 +436,12 @@ html, body {
   padding: 5px 10px;
   font-size: 12px;
   cursor: pointer;
+  transition:
+    transform var(--motion-fast) var(--ease-out-ui),
+    background-color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease;
 }
+.song-slot:active { transform: scale(0.98); }
 .song-slot.selected { border-color: #ffd54a; }
 .song-name { flex: 1; }
 .song-bpm { font-size: 11px; color: #9fb4ff; white-space: nowrap; }
@@ -419,6 +465,18 @@ html, body {
   gap: 10px;
   touch-action: pan-y;
   -webkit-overflow-scrolling: touch;
+  animation: modal-enter var(--motion-standard) var(--ease-out-ui) both;
+}
+
+@keyframes modal-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 .modal-box-large { width: min(92%, 560px); }
 .modal-box-small { width: min(78%, 300px); text-align: center; font-size: 14px; }
@@ -454,7 +512,12 @@ html, body {
   padding: 6px 8px;
   font-size: 13px;
   cursor: pointer;
+  transition:
+    transform var(--motion-fast) var(--ease-out-ui),
+    background-color var(--motion-fast) ease,
+    outline-color var(--motion-fast) ease;
 }
+.item-row:active { transform: scale(0.99); }
 .item-row.equipped { outline: 2px solid #ffd54a; }
 .item-icon { font-size: 18px; width: 24px; text-align: center; flex-shrink: 0; }
 .item-info { flex: 1; min-width: 0; }
@@ -489,7 +552,12 @@ html, body {
   color: #fff;
   font-size: 13px;
   cursor: pointer;
+  transition:
+    transform var(--motion-fast) var(--ease-out-ui),
+    background-color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease;
 }
+.shop-tab:active { transform: scale(0.97); }
 .shop-tab.active {
   background: rgba(255, 213, 74, 0.25);
   border-color: #ffd54a;
@@ -532,8 +600,13 @@ html, body {
   cursor: pointer;
   white-space: nowrap;
   overflow: hidden;
+  transition:
+    transform var(--motion-fast) var(--ease-out-ui),
+    background-color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease;
   text-overflow: ellipsis;
 }
+.chapter-tab:active:not(.locked) { transform: scale(0.97); }
 .chapter-tab.active {
   background: rgba(255, 213, 74, 0.25);
   border-color: #ffd54a;
@@ -559,7 +632,12 @@ html, body {
   color: #fff;
   font-size: 12px;
   cursor: pointer;
+  transition:
+    transform var(--motion-fast) var(--ease-out-ui),
+    background-color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease;
 }
+.stage-btn:active:not(.locked) { transform: scale(0.97); }
 .stage-btn.selected { border-color: #ffd54a; }
 .stage-btn.boss { color: #ff9fb0; font-weight: bold; }
 .stage-btn.locked {
@@ -640,7 +718,12 @@ html, body {
   justify-content: center;
   gap: 4px;
   cursor: pointer;
+  transition:
+    transform var(--motion-fast) var(--ease-out-ui),
+    background-color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease;
 }
+.save-slot:active { transform: scale(0.98); }
 .save-slot.active { border-color: #7dd3ff; }
 .save-slot.empty { color: #b8c2e8; }
 .save-slot.occupied { border-color: rgba(255, 213, 74, 0.42); }
@@ -656,3 +739,31 @@ html, body {
 
 .endless-btn { margin-top: 8px; width: 100%; border: 2px solid #ffd54a; border-radius: 14px; background: linear-gradient(135deg, rgba(255,213,74,0.95), rgba(255,126,74,0.9)); color: #241800; font-weight: 900; font-size: 18px; padding: 8px 10px; box-shadow: 0 0 16px rgba(255,213,74,0.35); }
 .endless-btn:active { transform: translateY(1px); }
+
+
+/* ---- モーション低減 ---- */
+@media (prefers-reduced-motion: reduce) {
+  .home-screen,
+  .modal-box {
+    animation: none;
+  }
+
+  .story-hint {
+    animation: none;
+    opacity: 0.8;
+  }
+
+  .ui-btn,
+  .act-btn,
+  .home-btn,
+  .char-slot,
+  .song-slot,
+  .item-row,
+  .shop-tab,
+  .chapter-tab,
+  .stage-btn,
+  .save-slot,
+  .endless-btn {
+    transition-duration: 0.01ms;
+  }
+}
