@@ -15,6 +15,18 @@ const CONFIG = {
   // 論理解像度(devicePixelRatioでスケーリング)
   VIEW: { W: 1600, H: 900 },
 
+  // 画面UIの見た目調整値。拍判定ロジックとは独立し、Canvas上の配置・演出だけに使う。
+  UI: {
+    NOTES: {
+      LOOKAHEAD_BEATS: 8,
+      CENTER_Y: 665,
+      HALF_WIDTH: 400,
+      BAND_HEIGHT: 92,
+      POP_MS: 560,
+      RADIUS: { DOWNBEAT: 19, BEAT: 13, EIGHTH: 8 },
+    },
+  },
+
   // コンボ/フィーバー。FEVER_COMBO以上でフィーバー(Step5以降で演出)
   // FEVER_FLASH_SEC: フィーバー突入時の画面フラッシュ演出の長さ(秒・Step9)
   COMBO: { FEVER_COMBO: 16, FEVER_FLASH_SEC: 0.35 },

@@ -1139,10 +1139,10 @@ const Game = (() => {
     g.clearRect(0, 0, VW, VH);
 
     if (scene === "title") {
-      g.fillStyle = "#ffffff";
+      g.fillStyle = "#050a14";
       g.fillRect(0, 0, VW, VH);
       renderTitle();
-    } else if (scene === "modeselect" || scene === "ready" || scene === "options" || scene === "jukebox") {
+    } else if (scene === "modeselect" || scene === "gameselect" || scene === "ready" || scene === "options" || scene === "jukebox") {
       // DOMオーバーレイ(home.js)が全画面を覆うため、Canvasは薄い背景のみでよい(DESIGN §1/Step6)
       g.fillStyle = "#05060a";
       g.fillRect(0, 0, VW, VH);
@@ -1174,23 +1174,26 @@ const Game = (() => {
       if (bossStage && bossTriggered && typeof Boss !== "undefined") Boss.draw(g, cam);
       if (level) Player.draw(g, cam);
       g.restore();
+      const stageVisuals = scene === "stage";
       // 休符区間/ボスの強制休符:画面を少し暗く+「♪休符♪」小表示
-      if (restNow || bossRestActive) renderRestOverlay();
-      NotesUI.draw(g, VW, VH);
-      // コンボフィーバー:画面縁が拍に同期して脈動発光(しきい値は装備で変動)
-      if (combo >= feverThreshold()) renderComboFeverEdge();
-      renderHUD();
-      // ボスHPバー(ボス戦中)/ステージ進行バー(通常時。画面上部中央。Step9)
-      if (bossStage && bossTriggered && typeof Boss !== "undefined" && Boss.active) renderBossHP();
-      else renderStageProgress();
-      if (missFlash > 0) {
-        g.fillStyle = `rgba(255,60,80,${0.35 * (missFlash / 0.25)})`;
+      if (stageVisuals && (restNow || bossRestActive)) renderRestOverlay();
+      // 全画面フラッシュはノーツ/HUDより奥へ置き、重要情報の白飛びを防ぐ。
+      if (stageVisuals && missFlash > 0) {
+        g.fillStyle = `rgba(255,60,80,${0.28 * (missFlash / 0.25)})`;
         g.fillRect(0, 0, VW, VH);
       }
-      // フィーバー突入の金色フラッシュ(Step9)
-      if (feverFlash > 0) {
-        g.fillStyle = `rgba(255,213,74,${0.5 * (feverFlash / CONFIG.COMBO.FEVER_FLASH_SEC)})`;
+      if (stageVisuals && feverFlash > 0) {
+        g.fillStyle = `rgba(255,213,74,${0.36 * (feverFlash / CONFIG.COMBO.FEVER_FLASH_SEC)})`;
         g.fillRect(0, 0, VW, VH);
+      }
+      NotesUI.draw(g, VW, VH, { forcedRest: stageVisuals && bossRestActive });
+      // コンボフィーバー:画面縁が拍に同期して脈動発光(しきい値は装備で変動)
+      if (stageVisuals && combo >= feverThreshold()) renderComboFeverEdge();
+      renderHUD();
+      // ボスHPバー(ボス戦中)/ステージ進行バー(通常時。画面上部中央。Step9)
+      if (stageVisuals) {
+        if (bossStage && bossTriggered && typeof Boss !== "undefined" && Boss.active) renderBossHP();
+        else renderStageProgress();
       }
       // ゴール到達演出の紙吹雪(Step9)
       if (confetti.length) drawConfetti();
@@ -1208,7 +1211,7 @@ const Game = (() => {
       const y = ((p.seedY + t * p.speed) % (VH + 60)) - 30;
       const x = p.x + Math.sin(t * p.driftRate + p.phase) * p.driftAmp;
       g.globalAlpha = p.alpha;
-      g.fillStyle = "rgba(80,110,190,0.28)";
+      g.fillStyle = "rgba(126,220,255,0.56)";
       g.font = Math.round(p.size) + "px sans-serif";
       g.fillText(p.glyph, x, y);
     }
@@ -1216,28 +1219,95 @@ const Game = (() => {
     g.textBaseline = "alphabetic";
   }
 
+  function pathRoundedRect(x, y, w, h, r) {
+    const rr = Math.min(r, w / 2, h / 2);
+    g.beginPath();
+    g.moveTo(x + rr, y);
+    g.arcTo(x + w, y, x + w, y + h, rr);
+    g.arcTo(x + w, y + h, x, y + h, rr);
+    g.arcTo(x, y + h, x, y, rr);
+    g.arcTo(x, y, x + w, y, rr);
+    g.closePath();
+  }
+
   function renderTitle() {
+    g.save();
+    // ゲーム本編と同じ月夜素材を使い、最初の1画面から世界観をつなげる。
+    const moon = typeof Sprites !== "undefined" ? Sprites.get("bg_moon") : null;
+    const forest = typeof Sprites !== "undefined" ? Sprites.get("bg_forest") : null;
+    if (moon) {
+      g.drawImage(moon, 0, 0, VW, VH);
+      if (forest) g.drawImage(forest, 0, 0, VW, VH);
+    } else {
+      const bg = g.createLinearGradient(0, 0, 0, VH);
+      bg.addColorStop(0, "#071126");
+      bg.addColorStop(1, "#071b2d");
+      g.fillStyle = bg;
+      g.fillRect(0, 0, VW, VH);
+    }
+    const shade = g.createRadialGradient(VW / 2, VH * 0.43, 60, VW / 2, VH * 0.43, 690);
+    shade.addColorStop(0, "rgba(4,10,22,0.16)");
+    shade.addColorStop(0.55, "rgba(3,8,18,0.46)");
+    shade.addColorStop(1, "rgba(1,4,12,0.82)");
+    g.fillStyle = shade;
+    g.fillRect(0, 0, VW, VH);
+
     renderTitleParticles();
     g.textAlign = "center";
-    // ロゴはゆっくり明滅(拍とは無関係。周期を長くして落ち着いた見た目に)
-    const logoBlink = 0.5 + 0.5 * Math.sin(performance.now() / 1400);
-    g.globalAlpha = 0.55 + 0.45 * logoBlink;
-    g.fillStyle = "#161821";
-    g.font = "bold 72px sans-serif";
-    g.fillText("リズムダンジョン", VW / 2, VH / 2 - 40);
-    g.globalAlpha = 1;
-    g.font = "36px sans-serif";
+
+    g.fillStyle = "#77d8ff";
+    g.font = "800 19px sans-serif";
+    g.fillText("◆  RHYTHM ACTION × DUNGEON  ◆", VW / 2, 298);
+
+    g.font = "900 84px sans-serif";
+    g.lineJoin = "round";
+    g.strokeStyle = "rgba(2,7,17,0.92)";
+    g.lineWidth = 16;
+    g.strokeText("リズムダンジョン", VW / 2, 410);
+    const logoGrad = g.createLinearGradient(0, 340, 0, 430);
+    logoGrad.addColorStop(0, "#ffffff");
+    logoGrad.addColorStop(0.56, "#e8f2ff");
+    logoGrad.addColorStop(1, "#9dc8ec");
+    g.fillStyle = logoGrad;
+    g.fillText("リズムダンジョン", VW / 2, 410);
+
+    g.fillStyle = "#ffd66b";
+    g.fillRect(VW / 2 - 210, 446, 165, 3);
+    g.fillRect(VW / 2 + 45, 446, 165, 3);
+    g.save();
+    g.translate(VW / 2, 447);
+    g.rotate(Math.PI / 4);
+    g.fillRect(-8, -8, 16, 16);
+    g.restore();
+
+    const buttonX = VW / 2 - 205;
+    const buttonY = 505;
+    const buttonW = 410;
+    const buttonH = 82;
+    pathRoundedRect(buttonX, buttonY, buttonW, buttonH, 41);
+    g.fillStyle = "rgba(5,15,32,0.78)";
+    g.fill();
+    g.strokeStyle = songReady ? "rgba(255,214,107,0.78)" : "rgba(169,184,215,0.36)";
+    g.lineWidth = 3;
+    g.stroke();
+
+    g.font = "800 30px sans-serif";
     if (!songReady) {
       // 楽曲デコード中は開始不可(タップ無効)
-      g.fillStyle = "#66708a";
-      g.fillText("読み込み中…", VW / 2, VH / 2 + 60);
+      g.fillStyle = "#a9b8d7";
+      g.fillText("楽曲を読み込み中…", VW / 2, buttonY + 51);
     } else {
-      g.fillStyle = "#3f5fb5";
-      const blink = 0.5 + 0.5 * Math.sin(performance.now() / 350);
-      g.globalAlpha = 0.4 + 0.6 * blink;
-      g.fillText("タップして開始", VW / 2, VH / 2 + 60);
+      g.fillStyle = "#fff2bd";
+      const blink = 0.5 + 0.5 * Math.sin(performance.now() / 430);
+      g.globalAlpha = 0.68 + 0.32 * blink;
+      g.fillText("画面をタップして開始", VW / 2, buttonY + 51);
       g.globalAlpha = 1;
     }
+
+    g.fillStyle = "rgba(198,215,239,0.72)";
+    g.font = "18px sans-serif";
+    g.fillText("音を取り戻す冒険へ", VW / 2, 630);
+    g.restore();
   }
 
   // 背景:章テーマの2色グラデーションをベースに、拍パルス/feverの発光オーバーレイを重ねる。
@@ -1506,17 +1576,18 @@ const Game = (() => {
 
   // HPハート(左上)。maxHpぶんの枠を出し、残りHPを塗る。
   // HPは装備のdefMulで小数(0.5刻み)になり得るため、半端(0<remain<1)は左半分だけ塗る。
-  // 超過分(overheal・rev3): ハート拾得はmaxHpを超えて回復できるため、maxHpぶんの枠の右に
-  // 続けて「枠なし・少し小さめ・金色」のボーナスハートを描く(844×390で溢れないよう最大+5個まで)。
+  // 最大HPが多い装備構成でもカードから溢れないよう、8枠を超えるぶんは「現在/最大」で要約する。
+  // overheal は要約値が最大を超えるため、その場合だけ金色にして区別する。
   function drawHearts(ox, oy) {
     const n = Math.round(Player.maxHp);
     const hp = Player.hp;
     const s = 26;      // ハート半径めやす
     const gap = 8;
+    const visibleSlots = Math.min(n, 8);
     g.textAlign = "left";
     g.textBaseline = "middle";
     g.font = "30px sans-serif";
-    for (let i = 0; i < n; i++) {
+    for (let i = 0; i < visibleSlots; i++) {
       const x = ox + i * (s + gap);
       const remain = hp - i;
       if (remain > 0 && remain < 1) {
@@ -1540,18 +1611,17 @@ const Game = (() => {
     }
     g.globalAlpha = 1;
 
-    // 超過分(overheal):maxHpを超えたぶんを枠なしの小さめ金色ハートで右へ続ける
-    const overflow = Math.max(0, Math.ceil(hp - n));
-    if (overflow > 0) {
-      const shown = Math.min(5, overflow);
-      const os = s * 0.78; // 通常より少し小さめ
-      g.font = "24px sans-serif";
-      g.fillStyle = "#ffd54a";
-      for (let i = 0; i < shown; i++) {
-        const x = ox + n * (s + gap) + 6 + i * (os + 6);
-        g.fillText("♥", x, oy);
-      }
-      g.font = "30px sans-serif";
+    const hiddenMax = Math.max(0, n - visibleSlots);
+    const hiddenCurrent = Math.max(0, hp - visibleSlots);
+    const overflow = Math.max(0, hp - n);
+    if (hiddenMax > 0 || overflow > 0) {
+      const compact = (v) => Number.isInteger(v) ? String(v) : v.toFixed(1);
+      const label = hiddenMax > 0
+        ? `+${compact(hiddenCurrent)}/${hiddenMax}`
+        : `+${compact(overflow)}`;
+      g.font = "900 16px sans-serif";
+      g.fillStyle = overflow > 0 ? "#ffd66b" : "#b9c8e2";
+      g.fillText(label, ox + visibleSlots * (s + gap) + 2, oy + 1);
     }
     g.textBaseline = "alphabetic";
   }
@@ -1565,15 +1635,15 @@ const Game = (() => {
     g.fillText("💰" + n, ox, oy);
   }
 
-  // 再生中の曲名(HUD左上・ハート/コインの下)。半透明・小フォントでHUDの邪魔をしない(改修バッチ)。
-  function drawSongNameHUD(ox, oy) {
+  // 再生中の曲名。中央の進行カード内に収め、長い曲名はCanvasのmaxWidthで安全に縮める。
+  function drawSongNameHUD(cx, oy, maxW) {
     const song = Conductor.currentSong;
     if (!song) return;
-    g.textAlign = "left";
-    g.globalAlpha = 0.62;
-    g.fillStyle = "#aeb6d6";
-    g.font = "18px sans-serif";
-    g.fillText("♪ " + song.title, ox, oy);
+    g.textAlign = "center";
+    g.globalAlpha = 0.88;
+    g.fillStyle = "#d9e7fb";
+    g.font = "800 20px sans-serif";
+    g.fillText("♪ " + song.title, cx, oy, maxW);
     g.globalAlpha = 1;
   }
 
@@ -1607,93 +1677,126 @@ const Game = (() => {
       const frac = b - Math.floor(b);
       pulse = Math.max(0, 1 - frac * 1.6); // 拍頭で1→0
     }
-    const w = 46 + pulse * 40;             // 縁の太さ
-    const a = 0.30 + pulse * 0.45;
-    const grad = g.createLinearGradient(0, 0, 0, VH);
-    grad.addColorStop(0, `rgba(255,213,74,${a})`);
-    grad.addColorStop(1, `rgba(255,140,60,${a})`);
+    const a = 0.18 + pulse * 0.26;
     g.save();
-    g.fillStyle = grad;
-    g.fillRect(0, 0, VW, w);                // 上
-    g.fillRect(0, VH - w, VW, w);           // 下
-    g.fillRect(0, 0, w, VH);                // 左
-    g.fillRect(VW - w, 0, w, VH);           // 右
+    // 太いベタ塗りではなく、細い三重線で視界を残したままフィーバーを示す。
+    for (let i = 0; i < 3; i++) {
+      const inset = 8 + i * 11;
+      g.strokeStyle = `rgba(255,198,78,${a * (1 - i * 0.24)})`;
+      g.lineWidth = 8 - i * 2;
+      g.strokeRect(inset, inset, VW - inset * 2, VH - inset * 2);
+    }
     g.restore();
   }
 
-  // ボスHPバー(画面上部中央)。名前+バー。フェーズ2で色が変わる。DESIGN §10・Step8
-  function renderBossHP() {
-    const barW = VW * 0.6, barH = 26;
-    const bx = (VW - barW) / 2, by = 24;
-    const ratio = Boss.maxHp > 0 ? Math.max(0, Boss.hp / Boss.maxHp) : 0;
-    // 名前
-    g.textAlign = "center";
-    g.fillStyle = "#e8ecff";
-    g.font = "bold 26px sans-serif";
-    g.fillText(Boss.name, VW / 2, by - 4);
-    // 枠
-    g.fillStyle = "rgba(0,0,0,0.5)";
-    g.fillRect(bx - 3, by - 3, barW + 6, barH + 6);
-    // 残量
-    const p2 = Boss.phase >= 2;
-    g.fillStyle = p2 ? "#ff5a6a" : "#c85adf";
-    g.fillRect(bx, by, barW * ratio, barH);
-    // 枠線
-    g.strokeStyle = "rgba(255,255,255,0.7)";
+  function drawHudPanel(x, y, w, h, accent) {
+    pathRoundedRect(x, y, w, h, 18);
+    const grad = g.createLinearGradient(x, y, x, y + h);
+    grad.addColorStop(0, "rgba(15,31,57,0.88)");
+    grad.addColorStop(1, "rgba(5,14,30,0.82)");
+    g.fillStyle = grad;
+    g.fill();
+    g.strokeStyle = accent || "rgba(166,206,255,0.30)";
     g.lineWidth = 2;
-    g.strokeRect(bx, by, barW, barH);
+    g.stroke();
+    g.fillStyle = accent || "rgba(119,216,255,0.56)";
+    pathRoundedRect(x + 16, y + 8, Math.min(72, w * 0.22), 3, 1.5);
+    g.fill();
   }
 
-  // ステージ進行バー(画面上部中央。スタート→ゴールのプレイヤー位置)。左に「章-ステージ」表記。
-  // ボス戦中は renderBossHP に差し替わる(呼び出し元で分岐)。DESIGN §13・Step9
+  function drawProgressTrack(x, y, w, h, ratio, color) {
+    pathRoundedRect(x, y, w, h, h / 2);
+    g.fillStyle = "rgba(1,7,17,0.72)";
+    g.fill();
+    if (ratio > 0) {
+      const fillW = Math.max(h, w * Math.max(0, Math.min(1, ratio)));
+      pathRoundedRect(x, y, fillW, h, h / 2);
+      const grad = g.createLinearGradient(x, y, x + w, y);
+      grad.addColorStop(0, color);
+      grad.addColorStop(1, "#eafcff");
+      g.fillStyle = grad;
+      g.fill();
+    }
+    g.strokeStyle = "rgba(215,235,255,0.34)";
+    g.lineWidth = 2;
+    pathRoundedRect(x, y, w, h, h / 2);
+    g.stroke();
+  }
+
+  // ボスHPバー(画面上部中央)。通常進行カードと同じ部品に統一する。
+  function renderBossHP() {
+    const ratio = Boss.maxHp > 0 ? Math.max(0, Boss.hp / Boss.maxHp) : 0;
+    const panelW = 720, panelH = 82;
+    const px = (VW - panelW) / 2, py = 14;
+    drawHudPanel(px, py, panelW, panelH, "rgba(213,126,255,0.46)");
+    g.textAlign = "center";
+    g.fillStyle = "#f3e7ff";
+    g.font = "900 23px sans-serif";
+    g.fillText(Boss.name, VW / 2, py + 31);
+    const p2 = Boss.phase >= 2;
+    drawProgressTrack(px + 28, py + 48, panelW - 56, 17, ratio, p2 ? "#ff6f7e" : "#c977ee");
+    g.textAlign = "right";
+    g.fillStyle = p2 ? "#ff9aa4" : "#d9b2f4";
+    g.font = "800 14px sans-serif";
+    g.fillText(p2 ? "PHASE 2" : "BOSS", px + panelW - 24, py + 29);
+  }
+
+  // ステージ進行バー(画面上部中央)。曲名・ステージ・進捗を一枚のカードへまとめる。
   function renderStageProgress() {
     if (!level) return;
-    const barW = VW * 0.42, barH = 18;
-    const bx = (VW - barW) / 2, by = 30;
-    // 章-ステージ表記(バーの左)
-    g.textAlign = "right";
-    g.fillStyle = "#9fb4ff";
-    g.font = "bold 22px sans-serif";
-    g.fillText(endlessMode ? "∞" : `${selChapter}-${selStage}`, bx - 14, by + barH - 2);
-    // 枠
-    g.fillStyle = "rgba(0,0,0,0.45)";
-    g.fillRect(bx - 2, by - 2, barW + 4, barH + 4);
-    // 進捗(スタート〜ゴールのタイルXから算出。拍計算は使わない)
     const p = Player.pos();
     const span = level.goalX - level.startX;
     const ratio = endlessMode
       ? ((Math.max(0, currentBeatOrZero() * 60 / Math.max(1, Conductor.bpm)) % CONFIG.ENDLESS.THEME_SEC) / CONFIG.ENDLESS.THEME_SEC)
       : (span !== 0 ? Math.max(0, Math.min(1, (p.tx - level.startX) / span)) : 0);
-    g.fillStyle = "#7fd39b";
-    g.fillRect(bx, by, barW * ratio, barH);
-    g.strokeStyle = "rgba(255,255,255,0.6)";
-    g.lineWidth = 2;
-    g.strokeRect(bx, by, barW, barH);
+    const panelW = 720, panelH = 82;
+    const px = (VW - panelW) / 2, py = 14;
+    drawHudPanel(px, py, panelW, panelH, "rgba(119,216,255,0.38)");
+    drawSongNameHUD(VW / 2, py + 30, 430);
+
+    g.textAlign = "left";
+    g.fillStyle = "#8ed8ff";
+    g.font = "900 20px sans-serif";
+    g.fillText(endlessMode ? "∞" : `${selChapter}-${selStage}`, px + 24, py + 31);
+    g.textAlign = "right";
+    g.fillStyle = "#b7c7df";
+    g.font = "800 15px sans-serif";
+    // 縦生成の折返しではX位置が単調増加しないため、誤解を招く数値%は表示しない。
+    g.fillText(endlessMode ? "LOOP" : "GOAL", px + panelW - 24, py + 30);
+    drawProgressTrack(px + 28, py + 50, panelW - 56, 15, ratio, endlessMode ? "#ffd66b" : "#63d2aa");
   }
 
   function renderHUD() {
-    // 左上:HPハート、その下にコイン所持数、ブースト中はさらにその下に残り拍数
-    drawHearts(24, 34);
-    drawCoinsHUD(24, 70);
-    drawSongNameHUD(24, 96);
-    drawBoostHUD(24, 124);
-
-    // 右上:コンボ / タップ(小さく常時表示)
-    g.textAlign = "right";
-    g.font = "bold 30px sans-serif";
-    const feverOn = combo >= feverThreshold();
-    g.fillStyle = feverOn ? "#ffd54a" : "#e8ecff";
-    g.fillText("コンボ: " + combo, VW - 30, 46);
-    g.font = "22px sans-serif";
-    g.fillStyle = "#aeb6d6";
-    g.fillText("タップ: " + taps, VW - 30, 80);
-
     if (scene === "calibration") {
+      drawHudPanel(VW / 2 - 330, 14, 660, 64, "rgba(119,224,178,0.46)");
       g.textAlign = "center";
-      g.fillStyle = "#cfe";
-      g.font = "26px sans-serif";
-      g.fillText("較正モード:メトロノームに合わせてタップ", VW / 2, 70);
+      g.fillStyle = "#d7fff0";
+      g.font = "800 23px sans-serif";
+      g.fillText("較正モード — メトロノームに合わせてタップ", VW / 2, 54);
+      return;
     }
+
+    const boostOn = !!(Player.isBoosted && Player.isBoosted());
+    const leftH = boostOn ? 126 : 98;
+    drawHudPanel(18, 14, 340, leftH, "rgba(255,124,134,0.34)");
+    drawHearts(34, 49);
+    drawCoinsHUD(34, 84);
+    if (boostOn) drawBoostHUD(34, 113);
+
+    const feverOn = combo >= feverThreshold();
+    const rightX = VW - 278;
+    drawHudPanel(rightX, 14, 260, 98, feverOn ? "rgba(255,214,107,0.62)" : "rgba(166,206,255,0.30)");
+    g.textAlign = "left";
+    g.fillStyle = feverOn ? "#ffd66b" : "#9fc9ed";
+    g.font = "900 14px sans-serif";
+    g.fillText("コンボ", rightX + 20, 43);
+    g.fillStyle = feverOn ? "#fff0b5" : "#f4f8ff";
+    g.font = "900 42px sans-serif";
+    g.fillText(String(combo), rightX + 20, 84);
+    g.textAlign = "right";
+    g.fillStyle = "#a9b8d7";
+    g.font = "800 18px sans-serif";
+    g.fillText("タップ " + taps, rightX + 238, 82);
   }
 
   function renderDebug() {
