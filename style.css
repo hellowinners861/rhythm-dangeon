@@ -1396,7 +1396,6 @@ input[type="range"] {
   .act-btn { width: 70px; height: 70px; min-width: 68px; min-height: 68px; }
 }
 
-
 /* ---- モーション低減 ---- */
 @media (prefers-reduced-motion: reduce) {
   .home-screen,
