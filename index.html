@@ -34,22 +34,29 @@
   <div id="home-overlay">
     <!-- モード選択 -->
     <div id="screen-modeselect" class="home-screen hidden">
-      <h1 class="home-title">リズムダンジョン</h1>
-      <div class="home-btn-col">
-        <button id="btn-mode-game" class="home-btn">ゲームへ</button>
-        <button id="btn-mode-options" class="home-btn">オプション</button>
-        <button id="btn-mode-jukebox" class="home-btn">曲視聴</button>
+      <div class="mode-hero">
+        <div class="brand-kicker"><span aria-hidden="true">◆</span> RHYTHM ACTION</div>
+        <h1 class="home-title home-title-main"><span>リズム</span><span>ダンジョン</span></h1>
+        <p class="home-subtitle">拍を刻んで、静寂を打ち破れ。</p>
+        <div class="home-btn-col">
+          <button id="btn-mode-game" class="home-btn home-btn-primary">ゲームへ</button>
+          <button id="btn-mode-options" class="home-btn">オプション</button>
+          <button id="btn-mode-jukebox" class="home-btn">曲視聴</button>
+        </div>
       </div>
     </div>
 
 
     <!-- ゲーム開始方法選択 -->
     <div id="screen-game-select" class="home-screen hidden">
-      <h1 class="home-title">ゲームへ</h1>
-      <div class="home-btn-col">
-        <button id="btn-new-game" class="home-btn">はじめから</button>
-        <button id="btn-continue-game" class="home-btn">つづきから</button>
-        <button id="btn-game-select-back" class="home-btn small">◀ モード選択へ</button>
+      <div class="menu-card">
+        <div class="brand-kicker"><span aria-hidden="true">◆</span> ADVENTURE</div>
+        <h1 class="home-title">冒険をはじめる</h1>
+        <div class="home-btn-col">
+          <button id="btn-new-game" class="home-btn home-btn-primary">はじめから</button>
+          <button id="btn-continue-game" class="home-btn">つづきから</button>
+          <button id="btn-game-select-back" class="home-btn small">◀ モード選択へ</button>
+        </div>
       </div>
     </div>
 
@@ -211,7 +218,7 @@
       <button class="act-btn" data-action="right" aria-label="右">▶</button>
     </div>
     <div class="pad pad-right">
-      <button class="act-btn" data-action="jump" aria-label="ジャンプ">🦘</button>
+      <button class="act-btn" data-action="jump" aria-label="ジャンプ">⇧</button>
       <button class="act-btn" data-action="attack" aria-label="攻撃">⚔</button>
     </div>
   </div>
