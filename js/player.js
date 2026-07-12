@@ -60,7 +60,7 @@ const Player = (() => {
   let landY = 0;     // 着地予定タイル行
 
   // 攻撃モーション(見た目)。type=tackle/sword/beam/beamfail
-  let attack = { t: 0, dur: 0, dir: 1, type: "tackle", beamEndTx: 0 };
+  let attack = { t: 0, dur: 0, dir: 1, type: "tackle", beamEndTx: 0, beamRows: [] };
 
   const P = () => CONFIG.PHYSICS;
 
@@ -127,7 +127,7 @@ const Player = (() => {
     state = "idle";
     xt.active = false; yt.active = false;
     vy = 0;
-    attack = { t: 0, dur: 0, dir: 1, type: "tackle", beamEndTx: 0 };
+    attack = { t: 0, dur: 0, dir: 1, type: "tackle", beamEndTx: 0, beamRows: [] };
     // 開始位置の足元が空なら落下から始める(安全策)
     if (!solid(tx, ty + 1)) startFall();
   }
@@ -156,6 +156,15 @@ const Player = (() => {
 
   // 敵タイルへ「攻撃以外で」進入した際の接触ダメージ(移動はキャンセルしない)。
   // とげの鎧(thorns): 接触した敵へ反撃ダメージを返す(Enemies.damageAt利用)。
+  function collectCoinsOnHorizontalPath(fromTx, toTx, rowTy) {
+    if (typeof Items === "undefined" || !Items.collectCoinsAt) return;
+    if (fromTx === toTx) return;
+    const step = Math.sign(toTx - fromTx);
+    const tiles = [];
+    for (let cx = fromTx + step; cx !== toTx + step; cx += step) tiles.push({ tx: cx, ty: rowTy });
+    if (tiles.length) Items.collectCoinsAt(tiles);
+  }
+
   function maybeTouch(d) {
     if (typeof Enemies === "undefined") return;
     const e = Enemies.enemyAt(tx, ty);
@@ -230,6 +239,7 @@ const Player = (() => {
     const stats = getStats();
     const dist = (stats.moveDist >= 2 || isBoosted()) ? 2 : 1;
     const moveSec = beatsToSec(P().MOVE_TWEEN_BEATS);
+    const fromTx = tx;
     const ntx = tx + d;
     const frontSolid = solid(ntx, ty);       // 進行先の体の高さ
     if (frontSolid) {
@@ -242,6 +252,7 @@ const Player = (() => {
         startYTween(ty, moveSec);
         state = "move";
         maybeTouch(d);
+        collectCoinsOnHorizontalPath(fromTx, tx, ty);
       }
       // 駆け上がり不可の壁 → その場で向きだけ変える(成立扱い・移動なし)
       return;
@@ -254,6 +265,7 @@ const Player = (() => {
       tx += d;
       maybeTouch(d);
     }
+    collectCoinsOnHorizontalPath(fromTx, tx, ty);
     startXTween(tx, moveSec);
     yt.active = false;
     state = "move";
@@ -273,7 +285,9 @@ const Player = (() => {
       reached = nx;
     }
     if (reached === tx) return; // 壁で完全に阻まれた → 無視(成立扱い)
+    const fromTx = tx;
     tx = reached;
+    collectCoinsOnHorizontalPath(fromTx, tx, ty);
     startXTween(tx, moveSec);
     if (state === "fall") landY = computeLanding(ty); // 着地予定を更新
     maybeTouch(d);
@@ -393,7 +407,7 @@ const Player = (() => {
       for (let cx = tx0 + dir; cx !== reached + dir; cx += dir) coinTiles.push({ tx: cx, ty });
       if (coinTiles.length) Items.collectCoinsAt(coinTiles);
     }
-    attack = { t: 0, dur: 0.18, dir, type: "tackle", beamEndTx: 0 };
+    attack = { t: 0, dur: 0.18, dir, type: "tackle", beamEndTx: 0, beamRows: [] };
     return results;
   }
 
@@ -407,7 +421,7 @@ const Player = (() => {
     const results = dealDamage(tiles, atk);
     // 攻撃でコイン取得(剣=前方+その上。pierce時は2タイル目も。攻撃範囲=tilesと同一)
     if (typeof Items !== "undefined" && Items.collectCoinsAt) Items.collectCoinsAt(tiles);
-    attack = { t: 0, dur: 0.2, dir, type: "sword", beamEndTx: 0 };
+    attack = { t: 0, dur: 0.2, dir, type: "sword", beamEndTx: 0, beamRows: [] };
     return results;
   }
 
@@ -415,18 +429,29 @@ const Player = (() => {
   // 貫通レンズ(pierce): ビームは元々直線上の敵全てを貫通しているため追加効果なし。
   function doBeam(verdict) {
     if (curBeat() < reloadUntilBeat) {
-      attack = { t: 0, dur: 0.12, dir, type: "beamfail", beamEndTx: tx }; // 不発
+      attack = { t: 0, dur: 0.12, dir, type: "beamfail", beamEndTx: tx, beamRows: [] }; // 不発
       return [];
     }
     const atk = atkTotal(verdict);
+    const rows = [ty, ty - 1]; // ガンナーのビームは足元列と頭上列の横2列を同時に撃つ。
     const tiles = [];
     let cx = tx + dir;
-    while (!solid(cx, ty) && cx >= 0 && cx < level.w) { tiles.push({ tx: cx, ty }); cx += dir; }
+    while (cx >= 0 && cx < level.w) {
+      let anyOpen = false;
+      for (const rowTy of rows) {
+        if (!solid(cx, rowTy)) {
+          tiles.push({ tx: cx, ty: rowTy });
+          anyOpen = true;
+        }
+      }
+      if (!anyOpen) break;
+      cx += dir;
+    }
     const results = dealDamage(tiles, atk);
     // 攻撃でコイン取得(ビーム=直線全タイル。攻撃範囲=tilesと同一)
     if (typeof Items !== "undefined" && Items.collectCoinsAt) Items.collectCoinsAt(tiles);
     reloadUntilBeat = curBeat() + (char.reloadBeats || 1);
-    attack = { t: 0, dur: 0.16, dir, type: "beam", beamEndTx: cx - dir };
+    attack = { t: 0, dur: 0.16, dir, type: "beam", beamEndTx: cx - dir, beamRows: rows.slice() };
     return results;
   }
 
@@ -574,22 +599,26 @@ const Player = (() => {
       atkAlpha = 1 - ap;
     }
 
-    // ビーム(貫通線)は体より先に描く
+    // ビーム(貫通線)は体より先に描く。攻撃判定と同じ横2列を太い帯で見せる。
     if (attack.dur > 0 && attack.type === "beam") {
       const ex = (attack.beamEndTx - cam.x) * TILE + VW / 2;
+      const rows = (attack.beamRows && attack.beamRows.length) ? attack.beamRows : [ty];
       g.globalAlpha = atkAlpha;
-      g.strokeStyle = "#ff6b6b";
-      g.lineWidth = 10 * (0.4 + 0.6 * atkAlpha);
-      g.beginPath();
-      g.moveTo(cx + attack.dir * r, cy);
-      g.lineTo(ex + attack.dir * TILE * 0.5, cy);
-      g.stroke();
-      g.strokeStyle = "#ffd0d0";
-      g.lineWidth = 4;
-      g.beginPath();
-      g.moveTo(cx + attack.dir * r, cy);
-      g.lineTo(ex + attack.dir * TILE * 0.5, cy);
-      g.stroke();
+      for (const rowTy of rows) {
+        const by = (rowTy - cam.y) * TILE + VH / 2;
+        g.strokeStyle = "#ff4f6f";
+        g.lineWidth = 18 * (0.45 + 0.55 * atkAlpha);
+        g.beginPath();
+        g.moveTo(cx + attack.dir * r, by);
+        g.lineTo(ex + attack.dir * TILE * 0.5, by);
+        g.stroke();
+        g.strokeStyle = "#ffe1e8";
+        g.lineWidth = 8;
+        g.beginPath();
+        g.moveTo(cx + attack.dir * r, by);
+        g.lineTo(ex + attack.dir * TILE * 0.5, by);
+        g.stroke();
+      }
       g.globalAlpha = 1;
     }
 
